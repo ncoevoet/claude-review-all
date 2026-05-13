@@ -52,9 +52,9 @@ Apply the shared severity tiers, 3-question gate, quotas, and auto-drop rules fr
 
 ## Severity calibration
 
-- ❌ Critical: clear memory leak, unbounded growth, N+1 on a hot path
-- ⚠️ Important: missing memoization on expensive compute, missing trackBy on big lists, sync I/O on render
-- 🎨 Suggested: micro-optimizations only when measurable (count the saved operations or cite a benchmark)
+- 🔴 Critical: clear memory leak, unbounded growth, N+1 on a hot path
+- 🟠 Important: missing memoization on expensive compute, missing trackBy on big lists, sync I/O on render
+- 🔵 Suggested: micro-optimizations only when measurable (count the saved operations or cite a benchmark)
 
 Don't flag micro-optimizations on cold paths.
 

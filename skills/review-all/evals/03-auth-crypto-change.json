@@ -1,0 +1,25 @@
+{
+  "id": "03-auth-crypto-change",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "files": {
+      "src/auth/session.ts": {
+        "before": "import { createHmac } from 'crypto';\nexport function signSession(payload, secret) {\n  return createHmac('sha256', secret).update(payload).digest('hex');\n}\n",
+        "after":  "import { createHmac } from 'crypto';\nexport function signSession(payload, secret) {\n  return createHmac('md5', secret).update(payload).digest('hex');\n}\n"
+      }
+    }
+  },
+  "expected_behavior": [
+    "Security Deep Dive agent spawns (filename matches auth/* pattern)",
+    "Bugs & Security agent OR Security Deep Dive flags MD5 downgrade as CRITICAL",
+    "Verifier keeps the finding (score >= 75); cross-confirmation bonus likely applied",
+    "Fix suggestion explicitly names SHA-256 (or stronger) as replacement"
+  ],
+  "expected_not_behavior": [
+    "Report does NOT mark the finding as appendix (score < 75)",
+    "Verifier does NOT drop the finding citing 'pre-existing'",
+    "Phase 4 menu DOES include 'Apply critical fixes + Save report' (Recommended)"
+  ]
+}

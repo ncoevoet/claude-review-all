@@ -28,7 +28,7 @@ Number findings continuously across all sections (Finding 1, 2, 3…) for easy r
 - **Files Changed**: X files (+Y lines, -Z lines)
 - **Language/Framework**: {auto-detected}
 - **Risk Level**: Low / Medium / High
-- **Findings**: X ❌ Critical, Y ⚠️ Important, Z ♻️ Debt, W 🎨 Suggested, V ❓ Questions
+- **Findings**: X 🔴 Critical, Y 🟠 Important, Z 🟡 Debt, W 🔵 Suggested, V ⚪ Questions
 - **Agents run**: {list}
 
 ## Automated Gate Results
@@ -41,7 +41,7 @@ Number findings continuously across all sections (Finding 1, 2, 3…) for easy r
 | Spec Existence | ✅ PASS / ❌ MISSING(N) | … |
 | Dependencies | ➖ N/A / 📦 CHANGED(+X, -Y, Z bumped) | … |
 
-## ❌ Critical
+## 🔴 Critical
 - **Finding 1**: `file:line` — Description {🔁 recurring if from history}
   - **Impact**: …
   - **Fix**: …
@@ -53,18 +53,18 @@ Number findings continuously across all sections (Finding 1, 2, 3…) for easy r
 
 > Missing spec files for new public code is always Critical.
 
-## ⚠️ Important
+## 🟠 Important
 {Same shape}
 
-## ♻️ Debt
+## 🟡 Debt
 - **Finding N**: {Smell type} — `file:line`
   - **Refactor**: concrete pattern
   - **Existing utility**: {if any}
 
-## 🎨 Suggested
+## 🔵 Suggested
 - **Finding N**: `file:line` — **Current**: … → **Suggested**: …
 
-## ❓ Questions
+## ⚪ Questions
 - **Finding N**: `file:line` — Question and context
 
 ## Dependency Changes
@@ -81,4 +81,4 @@ Number findings continuously across all sections (Finding 1, 2, 3…) for easy r
 
 - If a section has no findings, write "None found." (omit only Dependency Changes / Questions when empty)
 - Every main-section finding must have score ≥ 75
-- Risk Level: High if any ❌, Medium if ⚠️/♻️, Low otherwise
+- Risk Level: High if any 🔴, Medium if 🟠/🟡, Low otherwise

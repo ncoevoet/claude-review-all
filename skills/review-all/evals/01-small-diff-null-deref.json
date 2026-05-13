@@ -1,0 +1,24 @@
+{
+  "id": "01-small-diff-null-deref",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "files": {
+      "src/user-service.ts": {
+        "before": "export function greet(user) {\n  return `Hello ${user.name}`;\n}\n",
+        "after":  "export function greet(user) {\n  return `Hello ${user.profile.name}`;\n}\n"
+      }
+    }
+  },
+  "expected_behavior": [
+    "Bugs & Security agent flags a possible null/undefined access on user.profile (no null check)",
+    "Finding severity is CRITICAL or IMPORTANT (path: TypeError on missing profile)",
+    "Finding cites src/user-service.ts:2",
+    "Verifier keeps the finding (score >= 75)"
+  ],
+  "expected_not_behavior": [
+    "Report does NOT flag the unchanged greet() return template as a separate issue",
+    "Verifier does NOT auto-confirm based on heuristics alone"
+  ]
+}

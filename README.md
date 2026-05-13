@@ -1,37 +1,24 @@
 # /review-all
 
-A comprehensive, project-agnostic code review slash command for [Claude Code](https://docs.claude.com/en/docs/claude-code/overview). Combines simplification analysis, code quality / smell detection, deterministic toolchain gates, and deep heuristic review into one local pass — and **independently verifies every finding** before reporting, so false positives stay out of the report.
-
-It launches teams of parallel sub-agents covering: standards, bugs, security, DRY, smells, consistency, simplification, performance, test quality, API contracts, and a11y/i18n.
+Project-agnostic code review for [Claude Code](https://docs.claude.com/en/docs/claude-code/overview). One slash command runs deterministic gates, ten parallel review agents, and an adversarial verification pass. Every finding cites `file:line` and is independently re-checked before the report — false positives stay out.
 
 ## Severity tiers
 
-- **❌ CRITICAL** — Breaks functionality, exposes data, crashes systems, violates requirements
-- **⚠️ IMPORTANT** — Missing error handling, unhandled edge cases, potential bugs
-- **♻️ DEBT** — Code duplication, convention violations, refactoring needed within 6 months
-- **🎨 SUGGESTED** — Measurable improvements only. If you can't measure the improvement, don't suggest it.
-- **❓ QUESTION** — Items requiring human judgment about requirements or intent
+- **🔴 CRITICAL** — Breaks functionality, exposes data, crashes systems, violates requirements
+- **🟠 IMPORTANT** — Missing error handling, unhandled edge cases, potential bugs
+- **🟡 DEBT** — Code duplication, convention violations, refactoring needed within 6 months
+- **🔵 SUGGESTED** — Measurable improvements only. If you can't measure the improvement, don't suggest it.
+- **⚪ QUESTION** — Items requiring human judgment about requirements or intent
 
 ## Install
 
-This repo is a [Claude Code plugin marketplace](https://docs.claude.com/en/docs/claude-code/plugins). Inside Claude Code, run:
-
-```
-/plugin marketplace add ncoevoet/claude-review-all
-/plugin install review-all@ncoevoet
-```
-
-That's it — `/review-all` is now available in every project. Updates land via `/plugin update review-all@ncoevoet` after a new release is tagged.
-
-### Manual install (alternative)
-
-If you'd rather not use the plugin system, copy the skill directory into your Claude Code config:
-
 ```bash
 git clone https://github.com/ncoevoet/claude-review-all.git
-mkdir -p ~/.claude/skills
-cp -r claude-review-all/skills/review-all ~/.claude/skills/review-all
+cd claude-review-all
+make install   # copies skills/review-all/ → ~/.claude/skills/review-all/
 ```
+
+`make uninstall` removes it. `make review-self` installs then reminds you to run `/review-all` in this repo. The skill works in Claude Code only — it depends on filesystem access and bash.
 
 ## Use
 
@@ -48,6 +35,8 @@ Inside Claude Code, run `/review-all` with any of these targets:
 | `<sha1>..<sha2>` | A specific commit range |
 | `PR #N` or `#N` | A GitHub PR (requires `gh`) |
 | _file paths_ | Restrict review to those files |
+| `--paths a/b,c/d` | Filter resolved diff to these path prefixes |
+| `--exclude x,y` | Drop these path prefixes from the resolved diff |
 
 Examples:
 
@@ -58,39 +47,136 @@ Examples:
 /review-all last 3 commits
 /review-all vs main
 /review-all src/auth/login.ts src/auth/session.ts
+/review-all PR #42 --exclude apps/legacy
 ```
+
+## How it works — exact steps
+
+### Phase 0 — Project discovery
+
+| Step | What it does | Why |
+|---|---|---|
+| 0.0 Preflight | Runs `scripts/preflight.sh` to probe `git`/`timeout`/`lsof`/`ss`/`gh`/`jq`/`curl`/`rsync` | One JSON readout lets later phases degrade instead of crashing on a missing tool |
+| 0.1 Resolve target | Parses `$ARGUMENTS` against the table above | Single source of truth for "what diff is being reviewed" |
+| 0.2 Load config + cache | Reads `.claude/review-all.json`; reuses cached Project Profile if CLAUDE.md hashes match | Avoids re-running detection on hot paths |
+| 0.3 + 0.4 Toolchain | `scripts/detect-toolchain.sh` emits `{ecosystem, framework, test, lint, typecheck, build}` | Project-agnostic gate commands; never assumes Angular vs Spring vs Rust |
+| 0.5 Project rules | Reads root + nested CLAUDE.md files | "NEVER do X / ALWAYS do Y" steer the agents |
+| 0.6 Test patterns | `scripts/test-pattern-probe.sh` infers location, suffix, framework | Spec Existence Check uses this; no hardcoded `__tests__` assumption |
+| 0.7 CodeGraph + MCP | Probes the live MCP tool registry; records `toolchain.codegraphTools` keyed by capability | Tool names are not hardcoded — survives MCP-server renames |
+| 0.8 Gather diff | Computes diff + per-file slice, applies `--paths`/`--exclude`, recent commit log | Filter is enforced before any agent sees the diff |
+| 0.9 Output dirs | Creates `.claude/cache`, `.claude/reports`, `.claude/review-all` | First run on a fresh repo never crashes on a missing dir |
+
+### Phase 1 — Deterministic gates (in parallel)
+
+| Gate | Command | Why |
+|---|---|---|
+| Typecheck | `timeout 120 <discovered>` | Compilers find what review can't |
+| Lint | `timeout 120 <discovered>` | Style + simple bugs at zero token cost |
+| Tests | `timeout 180 <scoped>` | Smart scoping: tests that import changed files first, fallback to package, fallback to suite |
+| Dev-server probe | `scripts/dev-server-probe.sh` | If dev server is up, **skip** the build gate — it's already running |
+| Spec existence | per new file vs `toolchain.testPattern` | New public code without tests is automatically 🔴 |
+| Dependency check | per manifest diff | New deps / major bumps / removed deps surface explicitly |
+
+Gate-confirmed findings are tagged `VERIFIED` and skip the verification phase. They are real, by definition.
+
+### Phase 1.5 — Runtime probe (optional, self-skipping)
+
+If a UI file changed AND a dev-server port is open AND `curl` exists:
+
+1. Health-check each port (3× with 2s backoff to absorb dev-server warm-up).
+2. If Playwright/Puppeteer is installed and a baseline screenshot exists, headless-screenshot the changed routes and pixel-diff against baseline.
+
+Catches dead routes and visual regressions that static review cannot.
+
+### Phase 2 — Parallel agents
+
+Ten specialized agents review the (filtered) diff slice in parallel, each on its own concern:
+
+`standards · bugs+security · DRY · consistency · simplification · security-deep-dive · performance · test-quality · API-contract · a11y/i18n`
+
+Agents share `_shared.md` (severity tiers, 3-question gate, quotas, auto-drop rules, codegraph-tool resolution).
+
+Big diffs are auto-chunked (`chunkMaxFiles=40`, `chunkMaxBytes=200000`) and re-merged by `root_cause_key`.
+
+### Phase 2.5 — Dedupe → adversarial verify
+
+1. **Dedupe** via `scripts/dedupe.py`: groups by `root_cause_key`, annotates `confirmed_by`, applies global caps (SUGGESTED ≤ 10, QUESTION ≤ 8).
+2. **Verify** in parallel — one verifier per source agent, spawned at `verifierModel` tier (default Haiku — cheap, fast, JSON-bound). Verifier stance is **hostile**: assume every finding is wrong until disproven.
+3. Score: `≥75` → main report, `50–74` → appendix, `<50` → silently dropped.
+4. **State sweep** via `scripts/state-sweep.py`: applies `fixed`/`stale`/`snoozed`/`wontfix` transitions to `.claude/review-all/state.json`.
+
+### Phase 2.75 — Completion gate
+
+Every spawned agent and every verifier must have returned with valid JSON, or be explicitly retried once, or be surfaced as `⚠️ PARTIAL REVIEW` in the report. No silent drops.
+
+### Phase 3 — Unified report
+
+Sections, in order: Intent · Summary · Gate Results · 🔴 Critical · 🟠 Important · 🟡 Debt · 🔵 Suggested · ⚪ Questions · Dependency Changes · Appendix.
+
+Heartbeat lines print at each phase boundary so the user sees forward motion on long runs.
+
+### Phase 4 — Post-report menu
+
+Default visible options (≤3 + `Skip / done`):
+
+- **Apply critical fixes + Save report** (Recommended) — runs when any 🔴 exists
+- **More options…** — reveals deep-dive, generate patch, draft commit, post to PR, snooze, mark wontfix, schedule re-review, etc.
+
+Menu is **multi-select** — compose `Save report + Post to PR + Snooze F12` in one round.
+
+After a clean apply-fixes (all post-fix gates pass), an **auto-delta** scoped review runs against the just-edited files and appends a `## Post-fix delta` section.
+
+## Pros / Cons
+
+| Pros | Cons |
+|---|---|
+| **No false positives by design** — every finding survives adversarial re-read | Two-pass model (agents + verifier) costs more tokens than a single-shot review |
+| **Project-agnostic** — discovers conventions from the repo, never assumes them | Discovery adds ~3–8s of startup on the first run per repo (cached after) |
+| **Filtered scope** — `--paths`/`--exclude` and interactive workspace pruning honor the user's actual focus | The multi-workspace prompt only fires above 50 files / multiple roots — adjust expectations on small repos |
+| **Deterministic ops in scripts** — preflight, toolchain, test-pattern, dev-server, dedupe, state-sweep all live in `scripts/`. Reliability + token savings + auditable | Requires bash + Python 3 on the developer machine (default on macOS/Linux; fine in WSL) |
+| **Hostile verifier on Haiku** — cheap, fast, no confirmation bias | Verifier mis-scoring on truly novel patterns can hide a real finding in the appendix — escape via `verifierModel: "sonnet"` |
+| **Lifecycle-aware** — snoozed/wontfix/stale tracked in `state.json`; recurring findings auto-escalate after 3 sightings | State file is per-repo; not shared across team members. Intentional — comments are the team-wide channel |
+| **Plugin-free install** — `make install` and you're done | Not portable to claude.ai uploads or the Claude API runtime (uses git/gh/bash/filesystem). Claude Code only |
 
 ## Optional configuration
 
-Drop a `.claude/review-all.json` into any project to tune behavior:
+Drop a `.claude/review-all.json` into any project to tune behavior. All keys optional; documented defaults apply when absent. See `skills/review-all/references/config-keys.md` for the full table with per-key rationales.
+
+Common keys:
 
 ```json
 {
   "devServerPorts": [4200, 5173, 3000],
-  "extraAgents": []
+  "verifierModel": "haiku",
+  "extraAgents": [],
+  "skipAgents": []
 }
 ```
 
-- `devServerPorts` — ports the command should probe to detect a running dev server before suggesting "run the build".
-- `extraAgents` — additional agent persona files (under `~/.claude/skills/review-all/agents/`) to launch alongside the built-ins.
+`/review-all init` walks an interactive wizard that writes a populated config.
+
+## Optional: CodeGraph
+
+If a CodeGraph MCP server is wired into Claude Code and the project has a `.codegraph/` directory, `/review-all` uses its tools for cross-file analysis (callers, callees, impact). Tool names are resolved at runtime, so any MCP namespace works. Without CodeGraph, the relevant agents fall back to `grep` / `git grep`.
 
 ## Requirements
 
 - [Claude Code CLI](https://docs.claude.com/en/docs/claude-code/overview)
-- `git` (you've got this)
-- `gh` — only required for `PR #N` review mode
+- `git`, `bash`, `python3` (defaults on macOS/Linux)
+- `gh` — only for `PR #N` review mode
 
-## How it works
+## Layout
 
-`/review-all` runs in phases:
+```
+skills/review-all/
+├── SKILL.md              # orchestrator entry point
+├── agents/               # 10 persona files + _shared.md + verifier.md
+├── references/           # per-phase rules, config schema, state-file lifecycle
+└── scripts/              # preflight, detect-toolchain, dev-server-probe,
+                          # test-pattern-probe, dedupe, state-sweep
+```
 
-1. **Project discovery** — detects language, frameworks, conventions, and resolves the diff target.
-2. **Parallel agents** — 10+ specialized agents review the diff in parallel (standards, security deep-dive, performance, etc.).
-3. **Verification** — every finding is independently re-checked against the actual code; unverifiable claims are dropped.
-4. **Report** — consolidated, severity-ranked findings with `file:line` citations and proof.
-5. **Menu** — optional follow-ups (post to PR, write fixes, etc.).
-
-Agent personas live under `skills/review-all/agents/` and reference docs under `skills/review-all/references/` — both are plain Markdown, so you can read or fork them.
+All plain Markdown / shell / Python — read, fork, extend.
 
 ## License
 

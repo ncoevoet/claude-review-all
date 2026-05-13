@@ -19,12 +19,12 @@ Apply the shared severity tiers, 3-question gate, quotas, and auto-drop rules fr
 ## Public API changes (libraries / exported modules)
 
 For each changed exported symbol:
-- **Removed export** — anyone importing it breaks. ❌ Critical unless dead-code-verified.
+- **Removed export** — anyone importing it breaks. 🔴 Critical unless dead-code-verified.
 - **Renamed export** — same as removed for old name.
 - **Signature change**: parameter added (without default), parameter removed, parameter type narrowed, return type widened, generic constraint tightened — all break callers.
-- **Behavior change in stable API**: same signature, different semantics — flag as ⚠️ Important even if signature compiles.
+- **Behavior change in stable API**: same signature, different semantics — flag as 🟠 Important even if signature compiles.
 
-Use `codegraph_callers` (if available) or grep for importers to assess blast radius.
+Use `${codegraphTools.callers}` (if the orchestrator resolved it; see `_shared.md`) or grep for importers to assess blast radius.
 
 ## REST / RPC / GraphQL routes
 
@@ -52,12 +52,12 @@ For schema validators (Zod, Yup, Joi, Pydantic, etc.): verify nullability/option
 
 ## Versioning / changelog
 
-- If the project has a `CHANGELOG.md` or version field: did this breaking change update it? If not → ⚠️ Important.
+- If the project has a `CHANGELOG.md` or version field: did this breaking change update it? If not → 🟠 Important.
 
 ## Severity calibration
 
-- ❌ Critical: removed/renamed public export, removed/changed REST route, narrowed schema field, dropped column
-- ⚠️ Important: behavior change without signature change, missing changelog entry, new required field
+- 🔴 Critical: removed/renamed public export, removed/changed REST route, narrowed schema field, dropped column
+- 🟠 Important: behavior change without signature change, missing changelog entry, new required field
 
 ## Return format
 

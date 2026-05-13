@@ -51,9 +51,9 @@ Check the project's test patterns (from Project Profile and CLAUDE.md) — namin
 
 ## Severity calibration
 
-- ❌ Critical: new public function has zero tests AND it has non-trivial branching
-- ⚠️ Important: new branch in changed code is untested, mock returns impossible shape
-- ♻️ Debt: brittle pattern, weak assertion
+- 🔴 Critical: new public function has zero tests AND it has non-trivial branching
+- 🟠 Important: new branch in changed code is untested, mock returns impossible shape
+- 🟡 Debt: brittle pattern, weak assertion
 
 ## Return format
 

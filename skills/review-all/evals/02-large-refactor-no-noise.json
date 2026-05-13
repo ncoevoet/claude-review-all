@@ -1,0 +1,23 @@
+{
+  "id": "02-large-refactor-no-noise",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Mass rename of 200 files: oldName → newName, no semantic change. No bugs introduced. Tests pass.",
+    "files_changed": 200,
+    "rename_only": true,
+    "tests_pass": true
+  },
+  "expected_behavior": [
+    "Phase 1 gates report PASS for typecheck, lint, tests",
+    "Risk Level: Low",
+    "Total findings <= 2 (renames may legitimately trigger one consistency check; anything more is noise)",
+    "Heartbeat indicates Phase 2 ran with chunking enabled (>40 files triggers chunkMaxFiles)"
+  ],
+  "expected_not_behavior": [
+    "Report does NOT contain CRITICAL findings (pure rename + green gates)",
+    "Verifier does NOT keep findings whose only justification is 'large diff'",
+    "No spurious DRY/duplication findings about the renamed function appearing in many files"
+  ]
+}

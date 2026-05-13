@@ -7,19 +7,19 @@ description: Shared severity tiers, verification gate, quotas, and auto-drop rul
 
 ## Severity tiers
 
-- **❌ CRITICAL** — Breaks functionality, exposes data, crashes systems, violates requirements
-- **⚠️ IMPORTANT** — Missing error handling, unhandled edge cases, potential bugs
-- **♻️ DEBT** — Code duplication, convention violations, refactoring needed within 6 months
-- **🎨 SUGGESTED** — Measurable improvements only (complexity reduction by 3+, vulnerability class elimination, concrete perf gain). If you can't measure the improvement, don't suggest it.
-- **❓ QUESTION** — Items requiring human judgment about requirements or intent
+- **🔴 CRITICAL** — Breaks functionality, exposes data, crashes systems, violates requirements
+- **🟠 IMPORTANT** — Missing error handling, unhandled edge cases, potential bugs
+- **🟡 DEBT** — Code duplication, convention violations, refactoring needed within 6 months
+- **🔵 SUGGESTED** — Measurable improvements only (complexity reduction by 3+, vulnerability class elimination, concrete perf gain). If you can't measure the improvement, don't suggest it.
+- **⚪ QUESTION** — Items requiring human judgment about requirements or intent
 
 ## Per-agent quota
 
 To prevent any single agent from crowding the report:
-- ❌ / ⚠️: no limit (real bugs always get reported)
-- ♻️ DEBT: max 5 per agent
-- 🎨 SUGGESTED: max 3 per agent
-- ❓ QUESTION: max 2 per agent
+- 🔴 / 🟠: no limit (real bugs always get reported)
+- 🟡 DEBT: max 5 per agent
+- 🔵 SUGGESTED: max 3 per agent
+- ⚪ QUESTION: max 2 per agent
 
 If you exceed a quota, keep only the highest-impact items and drop the rest silently.
 
@@ -52,7 +52,7 @@ Never report findings that are:
 - Handled elsewhere (middleware, validators, framework guarantees)
 - In generated files (unless manually edited)
 - Automated dependency updates with all CI passing
-- Listed in `.claude/review-all/snooze.json` with non-expired snooze
+- Marked `snoozed` (non-expired) or `wontfix` in `stateFile` (`.claude/review-all/state.json`) — see `references/state-file.md`. (Filtering happens centrally in Phase 2.5 Step 2.5.0; agents don't need to re-check.)
 
 ## Established convention check
 
@@ -60,10 +60,11 @@ For any pattern you're about to flag, check if it exists in 5+ unchanged files. 
 
 ## CodeGraph usage
 
-If your environment exposes `codegraph_*` tools (typically when `.codegraph/` exists *and* the codegraph MCP server is wired in), prefer them over grep for cross-file analysis:
-- `codegraph_callers` — find what calls a function (impact analysis)
-- `codegraph_callees` — find what a function calls
-- `codegraph_impact` — see what's affected by changing a symbol
-- `codegraph_search` — find symbols by name
+The orchestrator resolves codegraph MCP tool names at runtime (see SKILL.md Step 0.7) and passes a `codegraphTools` map to each agent. Reference tools symbolically:
 
-If the tools are not available (no MCP, or tool call fails), fall back to `Grep` / `git grep`. Do not abort the review just because codegraph is missing. This matters most for the DRY, Bugs, Security, and API/Contract agents.
+- `${codegraphTools.callers}` — find what calls a function (impact analysis)
+- `${codegraphTools.callees}` — find what a function calls
+- `${codegraphTools.impact}` — see what's affected by changing a symbol
+- `${codegraphTools.search}` — find symbols by name
+
+The orchestrator substitutes each `${codegraphTools.X}` placeholder with the host-qualified tool name (e.g. `codegraph:codegraph_callers` or `mcp__codegraph__codegraph_callers`) before spawning you. If `codegraphTools` is empty, those tools are unavailable for this run — fall back to `Grep` / `git grep` and do not abort the review. This matters most for the DRY, Bugs, Security, and API/Contract agents.

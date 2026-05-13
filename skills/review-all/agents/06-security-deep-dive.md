@@ -67,9 +67,9 @@ For each entry point, form attack hypotheses:
 
 ## Severity calibration
 
-- ❌ Critical: a working attack scenario you can describe end-to-end on changed code
-- ⚠️ Important: missing defense-in-depth where one layer already exists, weak crypto choices
-- ❓ Question: design choices that warrant a security architect's eye
+- 🔴 Critical: a working attack scenario you can describe end-to-end on changed code
+- 🟠 Important: missing defense-in-depth where one layer already exists, weak crypto choices
+- ⚪ Question: design choices that warrant a security architect's eye
 
 Don't flag theoretical issues without a concrete reachable attack path.
 
