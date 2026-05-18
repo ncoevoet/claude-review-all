@@ -2,9 +2,11 @@
 
 Loaded by `/review-all` Phase 4. Presents the post-report action menu, including the apply-fixes sub-menu, loop, and guardrails.
 
-After printing the report, present a rich menu via `AskUserQuestion` with `multiSelect: true` so the user can compose actions in one round (e.g. `Save report + Post to PR + Mark F12 wontfix`). Skip Phase 4 entirely if every section says "None found."
+After printing the report, present a **fix-scope menu** via `AskUserQuestion` (single-select) listing the four primary fix actions below. Skip Phase 4 entirely if every section says "None found."
 
-Build the option list dynamically — only include options that make sense given the run state. Always offer at least "Skip / done" (selecting it terminates the loop even if other options are also selected — `Skip / done` is dominant).
+Every finding in the report MUST be prefixed with its number (Finding 1, Finding 2, …) — main sections AND appendix. The numbered list is what the **Custom** option references via `#N` / `N` / `N-M`.
+
+Build the option list dynamically — only include scopes that have at least one matching finding. The follow-up menu (after the chosen action completes) presents extended options via `AskUserQuestion` with `multiSelect: true`, and always includes "Skip / done" (selecting it terminates the loop even if other options are also selected — `Skip / done` is dominant).
 
 **Composition rules** when multiple options are selected:
 1. Apply fixes runs first (if chosen), since later actions may depend on the modified tree.
@@ -17,18 +19,42 @@ The apply-fixes sub-menu stays **single-select** — scopes are mutually exclusi
 
 ## Available choices
 
-The menu shows a **narrow default set** first; everything else lives behind a single "More options…" entry to avoid the 12-row prompt that was the previous default. AskUserQuestion options cap at 4, so the visible default set must be ≤3 plus `Skip / done`.
+AskUserQuestion options cap at 4. The primary menu is the four fix-scope actions below (single-select). Everything else lives in the follow-up extended menu that opens after the chosen action completes (or via **Custom** → Cancel → extended menu).
 
-### Default visible set (in order)
+### Primary fix-scope menu (single-select, in order)
 
 | Label | When to offer | Action |
 |-------|---------------|--------|
-| **Apply critical fixes + Save report (Recommended)** | At least one 🔴 finding exists | Bundled action: applies 🔴 findings via the apply-fixes sub-menu (scope = critical-only) and writes the full report to `outputDir/review-<iso-timestamp>.md` |
-| **Apply fixes** | At least one 🔴/🟠/🟡/🔵 finding exists AND no 🔴 (so the bundled action above is absent) | Sub-menu of scopes, then apply |
-| **More options…** | Always | Reveal the extended menu below |
-| **Skip / done** | Always | Exit |
+| **Fix critical (Recommended)** | At least one 🔴 finding | Apply 🔴 findings |
+| **Fix critical + important** | At least one 🔴 or 🟠 finding | Apply 🔴 + 🟠 findings |
+| **Fix critical + important + debt** | At least one 🔴/🟠/🟡 finding | Apply 🔴 + 🟠 + 🟡 findings |
+| **Custom (C/I/D/S + #IDs)** | Any finding exists | Prompt for a free-text expression mixing severity letters and finding IDs (grammar below) → apply the UNION |
 
-### Extended menu (after "More options…")
+If none of the first three scopes have matching findings (e.g. only 🔵 suggestions), still offer **Custom**. If there are zero actionable findings, skip Phase 4 entirely.
+
+#### Custom expression grammar
+
+```
+C  I  D  S        severity letters (case-insensitive)
+                  C = 🔴 Critical   I = 🟠 Important   D = 🟡 Debt   S = 🔵 Suggested
+#11   11          single finding (# prefix optional)
+1-7   #3-#9       inclusive range (# optional on either side)
+```
+
+Separators: comma, whitespace, or the word `and` — all interchangeable. Result = UNION of every matched finding ID; duplicates collapse. Severity letters expand to all in-report findings of that tier.
+
+Examples:
+- `I D #11`    → all 🟠 + all 🟡 + Finding 11
+- `1-7, 11`   → Findings 1..7 plus 11
+- `C #14-#16` → all 🔴 + Findings 14, 15, 16
+
+Numeric-only input (`1,3,7-9`) remains valid — strict superset of the old "Select by number" behavior.
+
+The bundled "save report" action is no longer in the primary menu — it lives in the extended menu and is also auto-offered after any successful fix run.
+
+### Extended menu (follow-up, multi-select)
+
+Shown after the primary fix action completes, OR if the user cancels the primary menu via AskUserQuestion's `Other` → `more`. Always includes `Skip / done`.
 
 | Label | When to offer | Action |
 |-------|---------------|--------|
@@ -46,17 +72,16 @@ The menu shows a **narrow default set** first; everything else lives behind a si
 
 ## Apply-fixes sub-menu
 
-If user picks "Apply fixes":
+The primary menu IS the apply-fixes scope selector — no extra sub-menu round. Scope mapping:
 
-| Label | Scope |
-|-------|-------|
-| Fix critical only (Recommended) | 🔴 |
+| Primary choice | Scope |
+|----------------|-------|
+| Fix critical (Recommended) | 🔴 |
 | Fix critical + important | 🔴 + 🟠 |
-| Fix recommended | 🔴 + 🟠 + 🟡 |
-| Fix all findings | 🔴 + 🟠 + 🟡 + 🔵 |
-| Fix by agent | Sub-select agent |
-| Fix by number | Sub-select finding numbers |
-| Cancel | back to main menu |
+| Fix critical + important + debt | 🔴 + 🟠 + 🟡 |
+| Custom (C/I/D/S + #IDs) | UNION of expanded severity letters and explicit IDs/ranges (see grammar above) |
+
+Additional scopes (Fix all 🔵, Fix by agent) are available from the extended menu under **Apply fixes (alternate scopes)**.
 
 For each finding in the chosen scope (file-then-line order):
 1. Read file at the finding's location to confirm code unchanged.

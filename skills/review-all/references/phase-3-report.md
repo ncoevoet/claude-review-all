@@ -13,7 +13,19 @@ This helps the user calibrate findings.
 
 ## Numbering
 
-Number findings continuously across all sections (Finding 1, 2, 3…) for easy reference in Phase 4.
+Number findings continuously across all sections (Finding 1, 2, 3…) for easy reference in Phase 4. **Mandatory**: every finding — Critical, Important, Debt, Suggested, Questions, AND Appendix — MUST be prefixed with `**Finding N**:` using a single global counter. The Phase 4 menu's **Custom** option (`#N` syntax) depends on this. Never omit the number, never reset between sections, never reuse a number.
+
+## Severity-letter emphasis
+
+Section headers MUST bold the leading letter so users can read off the legal Custom-menu tokens directly from the report:
+
+- `## 🔴 **C**ritical`
+- `## 🟠 **I**mportant`
+- `## 🟡 **D**ebt`
+- `## 🔵 **S**uggested`
+- `## ⚪ Questions` (no severity-letter token)
+
+This mirrors the Phase 4 grammar (`C`/`I`/`D`/`S`) so the report itself documents the menu syntax.
 
 ## Report Template
 
@@ -41,7 +53,7 @@ Number findings continuously across all sections (Finding 1, 2, 3…) for easy r
 | Spec Existence | ✅ PASS / ❌ MISSING(N) | … |
 | Dependencies | ➖ N/A / 📦 CHANGED(+X, -Y, Z bumped) | … |
 
-## 🔴 Critical
+## 🔴 **C**ritical
 - **Finding 1**: `file:line` — Description {🔁 recurring if from history}
   - **Impact**: …
   - **Fix**: …
@@ -53,15 +65,15 @@ Number findings continuously across all sections (Finding 1, 2, 3…) for easy r
 
 > Missing spec files for new public code is always Critical.
 
-## 🟠 Important
+## 🟠 **I**mportant
 {Same shape}
 
-## 🟡 Debt
+## 🟡 **D**ebt
 - **Finding N**: {Smell type} — `file:line`
   - **Refactor**: concrete pattern
   - **Existing utility**: {if any}
 
-## 🔵 Suggested
+## 🔵 **S**uggested
 - **Finding N**: `file:line` — **Current**: … → **Suggested**: …
 
 ## ⚪ Questions
@@ -73,7 +85,7 @@ Number findings continuously across all sections (Finding 1, 2, 3…) for easy r
 ## Potential Issues (Appendix)
 <details><summary>Findings scoring 50-74</summary>
 
-- `file:line` — Observation (confidence: {score}/100)
+- **Finding N**: `file:line` — Observation (confidence: {score}/100)
 </details>
 ```
 

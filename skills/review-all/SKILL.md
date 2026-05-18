@@ -323,7 +323,11 @@ Required sections (in order): Intent, Summary, Automated Gate Results, Critical,
 
 Detailed menu, apply-fixes sub-menu, loop logic, and guardrails live in **`references/phase-4-menu.md`** (sibling of this file). Read it before presenting the menu.
 
-Skip Phase 4 entirely if every section says "None found." Otherwise present the menu via `AskUserQuestion`, dynamically including only options that make sense given run state. Always include "Skip / done".
+Skip Phase 4 entirely if every section says "None found." Otherwise present the primary fix-scope menu via `AskUserQuestion` (single-select) with up to four options: **Fix critical**, **Fix critical + important**, **Fix critical + important + debt**, **Custom (C/I/D/S + #IDs)**. Only include scopes that have matching findings. The extended multi-select menu (Save report, Deep-dive, Post to PR, Skip / done, …) opens as a follow-up after the chosen fix action completes.
+
+The **Custom** option accepts a free-text expression mixing severity letters (`C`/`I`/`D`/`S`, case-insensitive) and finding IDs (`#11` or bare `11`, ranges `1-7` or `#3-#9`), separated by comma, whitespace, or `and`. Result = UNION of every matched ID; severity letters expand to all in-report findings of that tier. Examples: `I D #11` → all 🟠 + all 🟡 + Finding 11; `1-7, 11` → those eight IDs. Full grammar in `references/phase-4-menu.md`.
+
+Every finding in the report must be numbered (`**Finding N**:`) across all sections including the appendix — the Custom option's `#N` syntax depends on it.
 
 ---
 
