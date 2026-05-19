@@ -2,6 +2,15 @@
 
 Loaded by `/review-all` Phase 4. Presents the post-report action menu, including the apply-fixes sub-menu, loop, and guardrails.
 
+## Table of Contents
+
+- [Available choices](#available-choices)
+- [Apply-fixes sub-menu](#apply-fixes-sub-menu)
+- [Fix Results](#fix-results)
+- [Loop](#loop)
+- [Auto-delta after successful apply-fixes](#auto-delta-after-successful-apply-fixes)
+- [Guardrails](#guardrails)
+
 After printing the report, present a **fix-scope menu** via `AskUserQuestion` (single-select) listing the four primary fix actions below. Skip Phase 4 entirely if every section says "None found."
 
 Every finding in the report MUST be prefixed with its number (Finding 1, Finding 2, …) — main sections AND appendix. The numbered list is what the **Custom** option references via `#N` / `N` / `N-M`.
