@@ -44,7 +44,7 @@ If any answer is NO, drop the finding silently.
 ## Auto-drop list
 
 Never report findings that are:
-- Pre-existing (not introduced in this diff)
+- Pre-existing (not introduced in this diff) — **but see security-audit escape below**
 - Pedantic (wouldn't concern an experienced engineer)
 - Linter-catchable (existing linter/formatter will catch it)
 - Generic (no specific traceable problem)
@@ -53,6 +53,20 @@ Never report findings that are:
 - In generated files (unless manually edited)
 - Automated dependency updates with all CI passing
 - Marked `snoozed` (non-expired) or `wontfix` in `stateFile` (`.claude/review-all/state.json`) — see `references/state-file.md`. (Filtering happens centrally in Phase 2.5 Step 2.5.0; agents don't need to re-check.)
+
+### Security-audit escape on pre-existing 🔴/🟠
+
+The "pre-existing" rule above silently kills real findings when the review target IS the audit (security sweeps, large feature branches, follow-up commits where the in-diff code references unchanged-but-vulnerable code). Treat a finding as **in-scope even if the flagged lines are unchanged** when ALL of:
+
+1. Severity would be 🔴 CRITICAL or 🟠 IMPORTANT.
+2. The file matches an auth/crypto/API/network/IPC/build-pipeline pattern (the same set that triggers Security Deep Dive — see persona `06`), OR the agent is `02-bugs-security.md` / `06-security-deep-dive.md`.
+3. The review target signals an audit, i.e. ANY of:
+   - resolved range covers ≥ 10 commits, OR
+   - resolved range was `vs <branch>` where N (commits between branches) > 20, OR
+   - PR title / description / labels contain `security`, `audit`, `CVE`, or `RM-` (audit-finding code), OR
+   - the in-diff code calls into, imports, or modifies a symbol on the pre-existing vulnerable line (semantic adjacency — agent must trace the path).
+
+Report these as normal findings, tagged `pre_existing: true` in the JSON output. The verifier (`verifier.md`) accepts them without penalty when the escape conditions are met. Do NOT use this escape for 🟡 DEBT or 🔵 SUGGESTED — those remain auto-dropped when pre-existing.
 
 ## Established convention check
 

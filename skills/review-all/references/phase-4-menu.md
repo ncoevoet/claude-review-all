@@ -50,6 +50,19 @@ Examples:
 
 Numeric-only input (`1,3,7-9`) remains valid — strict superset of the old "Select by number" behavior.
 
+#### Custom prompt mechanism (hard rule)
+
+`AskUserQuestion` caps options at 4. Do NOT build a picker with one option per finding when `Custom` is picked — that crashes with `InputValidationError: array too_big` whenever a report has >4 findings (observed twice in real sessions).
+
+Decision tree for the `Custom` follow-up:
+
+1. **Total in-report findings ≤ 4** → AskUserQuestion with `multiSelect: true`, one option per finding (`"Finding N (Sev: title)"`). Cap-safe.
+2. **Total > 4** → AskUserQuestion with `multiSelect: false` and exactly these 2 options:
+   - `"Type expression (grammar shown above)"` — user picks this, types the expression via `Other` free-text.
+   - `"Cancel — back to extended menu"`.
+   Print the grammar block (the table above) as plain text in the question body so the user has a reference.
+3. **Never auto-bundle** findings into ad-hoc groups like `"All debt + suggested (4-8)"` to dodge the cap — bundles obscure intent and the grammar handles it cleanly (`D S` for the same union).
+
 The bundled "save report" action is no longer in the primary menu — it lives in the extended menu and is also auto-offered after any successful fix run.
 
 ### Extended menu (follow-up, multi-select)
@@ -84,10 +97,11 @@ The primary menu IS the apply-fixes scope selector — no extra sub-menu round. 
 Additional scopes (Fix all 🔵, Fix by agent) are available from the extended menu under **Apply fixes (alternate scopes)**.
 
 For each finding in the chosen scope (file-then-line order):
-1. Read file at the finding's location to confirm code unchanged.
+1. **Mandatory — never skip**: `Read` the target file before `Edit`. The Edit tool rejects writes without a prior Read in the same session, so skipping this guarantees `<tool_use_error>File has not been read yet</tool_use_error>`. Re-Read for every fix even on adjacent lines and even if the file was Read earlier in the same apply batch — earlier Edits in the batch invalidate the cached read state.
 2. Apply the fix using `Edit` — use the "Fix" text from the finding.
-3. If the fix can't be a single targeted Edit (cross-file, new file, architectural) → record as "manual follow-up", do NOT attempt.
-4. Record per-finding outcome: `applied` / `manual follow-up` / `skipped (code changed)`.
+3. If the fix can't be a single targeted Edit (cross-file, new file, architectural) → record as `manual follow-up`, do NOT attempt.
+4. If `Edit` returns `String to replace not found` → record as `manual follow-up: code drifted since review-time` and move on. Do NOT retry on a guessed string — the evidence string in the report is frozen at review-time, the file may have moved on (especially during multi-fix batches where earlier fixes shifted line numbers).
+5. Record per-finding outcome: `applied` / `manual follow-up` / `skipped (code changed)` / `guardrail-blocked`.
 
 After all edits, re-run Phase 1 gates against the modified tree:
 

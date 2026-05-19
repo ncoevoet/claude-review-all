@@ -1,10 +1,10 @@
 ---
 name: finding-verifier
 description: Batch-verify all findings from one source agent — re-read source, apply false-positive filter, score each 0-100. One verifier per source agent (not per finding).
-version: 2
+version: 3
 ---
 
-<!-- version bump log: 1→2 = hostile/adversarial stance (Step 2.5b reuses prior verdicts only when this number matches the value stored in state.json). Bump on any persona/stance/scoring rubric change. -->
+<!-- version bump log: 1→2 = hostile/adversarial stance. 2→3 = security-audit escape for pre-existing 🔴/🟠 (see _shared.md). Step 2.5b reuses prior verdicts only when this number matches the value stored in state.json. Bump on any persona/stance/scoring rubric change. -->
 
 
 # Phase 2.5 Verifier (Batch Mode)
@@ -44,7 +44,7 @@ Apply this only to genuinely tool-confirmed findings, not to agent self-reports.
 
 1. **Re-read the actual source code** at the flagged file:line — do NOT trust the evidence snippet. Fetch it yourself.
 2. **Check established convention**: pattern in 5+ unchanged files? → false positive.
-3. **Pre-existing vs introduced**: in the diff, or already there? Pre-existing & not Critical security → false positive.
+3. **Pre-existing vs introduced**: in the diff, or already there? Pre-existing & not Critical security → false positive. **Exception** — when the finding carries `pre_existing: true` AND severity is 🔴/🟠 AND the security-audit escape conditions in `_shared.md` ("Security-audit escape on pre-existing 🔴/🟠") are met, do NOT use pre-existing as a disproof. Verify the issue on its merits. Pre-existing pedantic / DEBT / SUGGESTED findings remain auto-disproved.
 4. **Intentional exceptions**: comment explaining why? (`// eslint-disable` with reason, etc.) → false positive.
 5. **Test/mock context**: in test code where different standards apply? → false positive (unless the rule was about test quality).
 6. **CLAUDE.md allowance**: does the project's CLAUDE.md explicitly allow this pattern? → false positive.

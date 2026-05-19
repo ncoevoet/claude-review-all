@@ -94,6 +94,15 @@ Otherwise parse `$ARGUMENTS`:
 
 Skip the prompt when ≤50 files OR only one workspace root is touched. Never auto-prompt without these gates — extra prompts erode trust.
 
+**Large-range scope prompt** (separate from the multi-workspace prompt above): when the resolved range is the empty-args default (branch vs merge-base) AND it covers ≥ 20 commits OR ≥ 200 files changed, prompt once via `AskUserQuestion` (`multiSelect: false`) with these options:
+
+- `"Review full range (N commits, M files)"` — proceed with the merge-base diff as-is. **Default / Recommended**.
+- `"Last 5 commits only"` — re-resolve as `HEAD~5..HEAD`.
+- `"Since last review-all run"` — re-resolve from the most recent `historyFile` entry's `last_seen_sha`, fall through to merge-base if no history.
+- `"Uncommitted/staged only"` — re-resolve to `--unstaged`+`--staged`.
+
+Skip this prompt when an explicit non-empty argument (`last N commits`, `vs <branch>`, `PR #N`, file paths, `--staged`, `--unstaged`) was passed — the user already declared intent. Skip on the default branch with no commits ahead. The 20-commits / 200-files thresholds are configurable via `.claude/review-all.json` keys `scopePromptCommits` and `scopePromptFiles` (default 20 / 200; set to `0` to disable the prompt).
+
 Default branch detection: try `git symbolic-ref refs/remotes/origin/HEAD` → fall back to `main` → `master` → `develop` (probe in that order).
 
 ### Step 0.2 — Load Project Config & Cache
@@ -114,7 +123,9 @@ If `.claude/review-all.json` exists, read it. Schema (jsonc — written as plain
   "chunkMaxBytes": 200000,
   "runtimeProbe": "auto",
   "runtimeRoutes": [],
-  "visualDiffThresholdPct": 1.0
+  "visualDiffThresholdPct": 1.0,
+  "scopePromptCommits": 20,
+  "scopePromptFiles": 200
 }
 ```
 All keys optional — use defaults if missing.
@@ -333,18 +344,20 @@ Every finding in the report must be numbered (`**Finding N**:`) across all secti
 
 ## Progress Output
 
-Long-running orchestration is silent by default — that triggers user-interrupts mid-Phase-2 and wastes spawned agent work. Emit a single user-visible line at each phase boundary so the user sees forward motion:
+Long-running orchestration is silent by default — that triggers user-interrupts mid-Phase-2 and wastes spawned agent work. Emit a single user-visible line at each phase boundary so the user sees forward motion.
+
+The lines below are the **canonical templates**. If you have all the data they need, emit them verbatim. If a value is genuinely unknown (e.g. elapsed not yet measurable, runtime probe skipped), substitute a one-word free-form line that still tells the user where you are (`Phase 0: profile built — 9 files, 2 commits.`). Both forms are acceptable; what is NOT acceptable is silence between phase boundaries or chatty per-agent narration.
 
 - After Phase 0 ends: `Phase 0: profile built, <N> files in target (elapsed <S>s)`
 - After Phase 1 ends: `Phase 1: typecheck=<R>, lint=<R>, tests=<R>, runtime=<R> (elapsed <S>s)`
-- During Phase 2, when each agent returns: `Phase 2: <K>/<N> agents returned (elapsed <S>s)`
+- During Phase 2, when each agent returns: `Phase 2: <K>/<N> agents returned (elapsed <S>s)` — one line per return is OK; do not also narrate each agent's finding count.
 - After Phase 2.75 completion gate: `Phase 2.75: <K> agents verified, <M> findings kept, <X> appendix, <Y> dropped (elapsed <S>s)`
 - After Phase 3 ends: `Phase 3: report assembled — <C> critical, <I> important, <D> debt, <S> suggested, <Q> questions`
 
 In addition, if ANY single Phase 2 agent exceeds 120s, emit ONCE:
 `Long-running agent: <agent-id> (still working, budget <agentTimeoutSeconds>s)`
 
-Keep heartbeat output to one line each. Do NOT narrate internal deliberation between heartbeats.
+Keep heartbeat output to one line each. Do NOT narrate internal deliberation between heartbeats (e.g. "DRY agent: 0 findings. Continue waiting." — the `<K>/<N> agents returned` counter already conveys this).
 
 ---
 

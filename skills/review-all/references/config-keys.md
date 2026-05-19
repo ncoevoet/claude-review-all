@@ -23,6 +23,8 @@ Each default carries a **Why** rationale — Ousterhout's law: no voodoo constan
 | `runtimeProbe` | `"auto" \| "off" \| "force"` | `"auto"` | Phase 1.5 mode. `auto` runs only with UI diffs + open dev server. `force` runs Step 1 without requiring UI files in the diff (curl is still required — see Notes). `off` disables. | `auto` is the least surprising default — never probes when nothing UI changed. |
 | `runtimeRoutes` | `string[]` | `[]` | Explicit Phase 1.5 route list. When non-empty, overrides route discovery from changed files. | Empty default; route discovery from changed files is usually correct. |
 | `visualDiffThresholdPct` | `number` | `1.0` | Percent of differing pixels in Phase 1.5 visual diff that triggers a 🔵 SUGGESTED finding. | 1% absorbs anti-aliasing and font-hinting noise across headless renders; below 0.5% produces constant false positives. |
+| `scopePromptCommits` | `number` | `20` | Commits-ahead threshold above which the empty-args resolution triggers the large-range scope prompt (SKILL.md Step 0.1). `0` disables the commit-count branch of the trigger. | 20 commits is roughly a week of sustained work on most teams; below this, the merge-base diff is usually still the user's intended scope. |
+| `scopePromptFiles` | `number` | `200` | Files-changed threshold above which the empty-args resolution triggers the large-range scope prompt (SKILL.md Step 0.1). `0` disables the files-changed branch of the trigger. | 200 files matches the chunkMaxFiles × ~5-chunk practical upper bound — beyond that the user almost always wants to narrow scope before paying the spawn cost. |
 
 ## Other defaults documented elsewhere
 
