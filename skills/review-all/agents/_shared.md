@@ -17,11 +17,11 @@ description: Shared severity tiers, verification gate, quotas, and auto-drop rul
 
 To prevent any single agent from crowding the report:
 - 🔴 / 🟠: no limit (real bugs always get reported)
-- 🟡 DEBT: max 5 per agent
-- 🔵 SUGGESTED: max 3 per agent
-- ⚪ QUESTION: max 2 per agent
+- 🟡 DEBT: max ${quota.debt} per agent
+- 🔵 SUGGESTED: max ${quota.suggested} per agent
+- ⚪ QUESTION: max ${quota.question} per agent
 
-If you exceed a quota, keep only the highest-impact items and drop the rest silently.
+If you exceed a quota, keep only the highest-impact items and drop the rest silently. A quota of `0` means **no limit** for that tier — report every qualifying finding.
 
 ## Finding requirements
 

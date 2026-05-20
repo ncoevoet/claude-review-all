@@ -13,23 +13,62 @@ Writes a JSON object on stdout with two fields:
     annotated with `confirmed_by` = list of source_agent names that flagged
     the same key (excluding the primary).
   - dropped_global_cap: list of finding ids dropped because the per-severity
-    global cap fired (SUGGESTED ≤ 10, QUESTION ≤ 8, others uncapped).
+    global cap fired (SUGGESTED ≤ 10, QUESTION ≤ 8 by default; others uncapped).
+
+Caps are overridable: pass --suggested-cap N / --question-cap N, or set the
+env vars REVIEW_ALL_SUGGESTED_CAP / REVIEW_ALL_QUESTION_CAP. CLI args win over
+env. A value of 0 disables that cap entirely (keep every finding of that tier).
 
 Exit 0 on success. Exit 2 on malformed input.
 """
 
 import json
+import os
 import sys
 from collections import defaultdict
 
-SUGGESTED_CAP = 10
-QUESTION_CAP = 8
+DEFAULT_SUGGESTED_CAP = 10
+DEFAULT_QUESTION_CAP = 8
+
+def resolve_cap(cli_val, env_name, default):
+    """CLI arg > env var > default. 0 means unlimited. Bad values fall back."""
+    if cli_val is not None:
+        return cli_val
+    raw = os.environ.get(env_name)
+    if raw is not None:
+        try:
+            v = int(raw)
+            if v >= 0:
+                return v
+        except ValueError:
+            pass
+    return default
+
+def parse_cli_cap(flag):
+    """Return int value for `--flag N` if present in argv, else None."""
+    if flag in sys.argv:
+        i = sys.argv.index(flag)
+        if i + 1 < len(sys.argv):
+            try:
+                v = int(sys.argv[i + 1])
+                if v >= 0:
+                    return v
+            except ValueError:
+                pass
+        print(f"dedupe: {flag} needs a non-negative integer", file=sys.stderr)
+        sys.exit(2)
+    return None
 
 # Primary = most evidence-rich finding in the group (longest evidence string).
 def pick_primary(findings):
     return max(findings, key=lambda f: len(f.get("evidence", "")))
 
 def main():
+    suggested_cap = resolve_cap(
+        parse_cli_cap("--suggested-cap"), "REVIEW_ALL_SUGGESTED_CAP", DEFAULT_SUGGESTED_CAP)
+    question_cap = resolve_cap(
+        parse_cli_cap("--question-cap"), "REVIEW_ALL_QUESTION_CAP", DEFAULT_QUESTION_CAP)
+
     try:
         items = json.load(sys.stdin)
         if not isinstance(items, list):
@@ -64,7 +103,9 @@ def main():
         return (len(f.get("confirmed_by", [])), len(f.get("evidence", "")))
 
     dropped = []
-    for sev, cap in (("SUGGESTED", SUGGESTED_CAP), ("QUESTION", QUESTION_CAP)):
+    for sev, cap in (("SUGGESTED", suggested_cap), ("QUESTION", question_cap)):
+        if cap == 0:  # 0 = unlimited
+            continue
         bucket = sorted(by_sev.get(sev, []), key=score, reverse=True)
         if len(bucket) > cap:
             for f in bucket[cap:]:

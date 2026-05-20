@@ -29,7 +29,7 @@ You are a comprehensive, project-agnostic code review orchestrator. You combine 
 - **🔵 SUGGESTED** — Measurable improvements only. If you can't measure the improvement, don't suggest it.
 - **⚪ QUESTION** — Items requiring human judgment about requirements or intent
 
-**Per-agent quotas** (defined in `_shared.md`): keep the report focused.
+**Per-agent quotas** (defined in `_shared.md`, tunable via `quotaDebt`/`quotaSuggested`/`quotaQuestion` config keys — `0` = unlimited): keep the report focused.
 
 ---
 
@@ -283,7 +283,9 @@ Read `references/phase-2-agents.md` (sibling of this file) for diff-slice mappin
 - `agents/09-api-contract.md` — API & Contract (conditional)
 - `agents/10-a11y-i18n.md` — A11y & i18n (conditional)
 
-For each agent you spawn: pass its persona + `_shared.md` (concatenated) + the diff slice as the prompt. Substitute `${codegraphTools.X}` placeholders using the runtime-resolved map from Step 0.7.
+For each agent you spawn: pass its persona + `_shared.md` (concatenated) + the diff slice as the prompt. Before spawning, substitute these placeholders in the concatenated text:
+- `${codegraphTools.X}` — from the runtime-resolved map from Step 0.7.
+- `${quota.debt}` / `${quota.suggested}` / `${quota.question}` — from config keys `quotaDebt` (default `5`), `quotaSuggested` (default `3`), `quotaQuestion` (default `2`) in `.claude/review-all.json`. A config value of `0` disables that per-agent quota.
 
 Apply `extraAgents` and `skipAgents` from `.claude/review-all.json`.
 

@@ -16,14 +16,17 @@ Lifecycle interactions with the steps below:
 Collect all findings from Phase 2 agents into a single JSON array, then pipe through the bundled script:
 
 ```bash
-echo "$ALL_FINDINGS_JSON" | python3 scripts/dedupe.py
+echo "$ALL_FINDINGS_JSON" | python3 scripts/dedupe.py \
+  --suggested-cap "${suggestedGlobalCap:-10}" --question-cap "${questionGlobalCap:-8}"
 ```
+
+Pass `--suggested-cap` / `--question-cap` from the `suggestedGlobalCap` / `questionGlobalCap` config keys (`config-keys.md`). Omit the flags to use the defaults. A cap of `0` disables that cap — keep every survivor of that tier.
 
 The script groups by `root_cause_key`, picks the most evidence-rich finding as primary, annotates each kept finding with `confirmed_by` (the other agents that raised the same key), and applies the global caps below. Output is `{"kept": [...], "dropped_global_cap": [ids]}`.
 
 **Global caps the script enforces** (prevents the report from drowning in noise — with 10 agents the per-agent quotas alone allow up to 30 SUGGESTED + 20 QUESTION):
-- Keep at most 10 SUGGESTED findings globally, ranked by `confirmed_by` count then evidence richness.
-- Keep at most 8 QUESTION findings globally (same ranking).
+- Keep at most `suggestedGlobalCap` (default 10) SUGGESTED findings globally, ranked by `confirmed_by` count then evidence richness. `0` = no cap.
+- Keep at most `questionGlobalCap` (default 8) QUESTION findings globally (same ranking). `0` = no cap.
 - CRITICAL / IMPORTANT / DEBT have no global cap — never drop a real bug for noise reasons.
 
 Build the per-agent verification batches from `kept` (group by original `source_agent` field).
