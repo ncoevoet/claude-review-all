@@ -153,6 +153,30 @@ Common keys:
 }
 ```
 
+### Finding-count caps
+
+Two layers trim a report. Both are config-driven — set the relevant keys to `0` for a complete verified list. 🔴 CRITICAL / 🟠 IMPORTANT are never capped at any layer.
+
+| Key | Default | Caps |
+|-----|---------|------|
+| `quotaDebt` | `5` | 🟡 DEBT findings **per agent** (dropped pre-dedupe) |
+| `quotaSuggested` | `3` | 🔵 SUGGESTED findings **per agent** |
+| `quotaQuestion` | `2` | ⚪ QUESTION findings **per agent** |
+| `suggestedGlobalCap` | `10` | 🔵 SUGGESTED findings **globally**, after dedupe |
+| `questionGlobalCap` | `8` | ⚪ QUESTION findings **globally**, after dedupe |
+
+To get every verified finding, zero out both layers for the tier — a per-agent quota drops findings *before* dedupe, so a global cap alone cannot recover them:
+
+```json
+{
+  "quotaDebt": 0,
+  "quotaSuggested": 0,
+  "quotaQuestion": 0,
+  "suggestedGlobalCap": 0,
+  "questionGlobalCap": 0
+}
+```
+
 `/review-all init` walks an interactive wizard that writes a populated config.
 
 ## Optional: CodeGraph
