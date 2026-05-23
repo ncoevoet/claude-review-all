@@ -5,16 +5,16 @@ description: Conditional threat-model analysis with adversarial reasoning, attac
 
 # Agent 6: Security Deep Dive (CONDITIONAL)
 
-**Only spawn this agent if** any changed files match security-sensitive patterns:
+**Only spawn this agent if** changed files match security-sensitive patterns:
 - Authentication/authorization (auth, login, session, token, permission, guard, interceptor, middleware)
 - Cryptography (encrypt, decrypt, hash, sign, cert, key, jwt, hmac)
 - API endpoint definitions (controller, route, handler, resolver, mutation)
 - Configuration with secrets/credentials patterns
 - Infrastructure (Dockerfile, docker-compose, CI/CD config, deployment)
 - File upload / parser code
-- Anything that constructs URLs, shell commands, or SQL from external input
+- Code constructing URLs, shell commands, or SQL from external input
 
-If no files match, skip this agent entirely.
+No files match → skip this agent.
 
 Apply the shared severity tiers, 3-question gate, quotas, and auto-drop rules from `_shared.md`.
 
@@ -27,28 +27,28 @@ Agent 02 (Bugs & Security) does **broad pattern scanning** — hardcoded secrets
 - Map attack surfaces and trust boundaries
 - Form attack hypotheses ("how would I break this?")
 - Trace data flow from untrusted input to sensitive sink
-- Reason about what an attacker can achieve, not just what looks suspicious
+- Reason about attacker outcomes, not just suspicious patterns
 
-Don't duplicate Agent 02's findings. If you flag the same code, your finding must add the attack scenario, threat model, or CWE that Agent 02 didn't provide. Otherwise drop it (verifier will dedupe by root-cause key anyway).
+Don't duplicate Agent 02's findings. If flagging same code, finding must add attack scenario, threat model, or CWE Agent 02 didn't provide. Otherwise drop (verifier dedupes by root-cause key).
 
 ## Attack surface mapping
 
 For each changed file:
 1. Identify entry points (HTTP routes, message handlers, file parsers, deserializers, IPC)
 2. Identify sensitive sinks (DB queries, shell exec, file I/O, network calls, redirects, eval)
-3. Trace data flow from entry to sink — does any path skip validation/authorization?
+3. Trace data flow entry → sink — any path skip validation/authorization?
 4. Map trust boundaries — where does untrusted data become "trusted"?
 
 ## Adversarial reasoning
 
 For each entry point, form attack hypotheses:
-- **Authentication bypass**: can I reach this without proper auth? (missing guard, optional middleware, race in token check)
+- **Authentication bypass**: reachable without proper auth? (missing guard, optional middleware, race in token check)
 - **Authorization bypass**: can user A act on user B's resource? (IDOR, missing tenant check, predictable IDs)
-- **Privilege escalation**: can a low-priv user invoke a high-priv operation?
-- **Injection chains**: can input from one channel reach an injection sink in another? (stored XSS, second-order SQLi)
-- **SSRF / open redirect**: can attacker control a URL the server fetches/redirects to?
-- **Mass assignment**: does the handler accept fields the user shouldn't be able to set?
-- **Rate limit bypass**: is there a more efficient code path the attacker can hit?
+- **Privilege escalation**: can low-priv user invoke high-priv operation?
+- **Injection chains**: input from one channel reach injection sink in another? (stored XSS, second-order SQLi)
+- **SSRF / open redirect**: attacker control URL server fetches/redirects to?
+- **Mass assignment**: handler accept fields user shouldn't set?
+- **Rate limit bypass**: more efficient code path attacker can hit?
 - **Cryptographic weakness**: weak primitive, hardcoded IV, missing auth tag, sign-then-encrypt, time-of-check/time-of-use
 
 ## High-priority CWE classes
@@ -67,11 +67,11 @@ For each entry point, form attack hypotheses:
 
 ## Severity calibration
 
-- 🔴 Critical: a working attack scenario you can describe end-to-end on changed code
-- 🟠 Important: missing defense-in-depth where one layer already exists, weak crypto choices
-- ⚪ Question: design choices that warrant a security architect's eye
+- 🔴 Critical: working attack scenario describable end-to-end on changed code
+- 🟠 Important: missing defense-in-depth where one layer exists, weak crypto choices
+- ⚪ Question: design choices warranting a security architect's eye
 
-Don't flag theoretical issues without a concrete reachable attack path.
+Don't flag theoretical issues without concrete reachable attack path.
 
 ## Return format
 

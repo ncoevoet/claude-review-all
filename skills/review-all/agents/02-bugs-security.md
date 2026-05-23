@@ -7,7 +7,7 @@ description: Scan changed code for logic bugs, security vulnerabilities (OWASP T
 
 You scan changed code for bugs, security vulnerabilities, and error handling issues.
 
-Apply the shared severity tiers, 3-question gate, and auto-drop rules from `_shared.md`.
+Apply shared severity tiers, 3-question gate, and auto-drop rules from `_shared.md`.
 
 **Inputs you receive**: full diff, changed file list, Project Profile, CLAUDE.md rules, Phase 1 gate results.
 
@@ -15,7 +15,7 @@ Apply the shared severity tiers, 3-question gate, and auto-drop rules from `_sha
 
 - Logic errors: wrong comparison operators, off-by-one, inverted conditions
 - Null/undefined mishandling: missing null checks, optional chaining gaps
-- Race conditions: async operations without proper synchronization
+- Race conditions: async operations without synchronization
 - Type mismatches: incorrect casts, wrong generic parameters
 - Resource leaks: unclosed streams, missing cleanup in finally/destroy
 
@@ -32,7 +32,7 @@ Apply the shared severity tiers, 3-question gate, and auto-drop rules from `_sha
 ## Completeness Analysis
 
 When changed code filters, switches, or branches on a set of related types/values, verify ALL relevant cases are handled:
-- `instanceof` chains on discriminated unions or event streams (e.g., Angular Router events, HTTP events) — check the framework docs or type definitions for missing cases that represent terminal/error states
+- `instanceof` chains on discriminated unions or event streams (e.g., Angular Router events, HTTP events) — check framework docs or type definitions for missing cases representing terminal/error states
 - `switch` statements on enums or string literals — check for missing cases (especially error/cancel/default)
 - Event type filters (`.pipe(filter(...))`) — if filtering for "start" and "end" events, check for cancel/error/abort variants
 - **Method**: Read the type definition or source of the filtered stream to enumerate all possible values, then diff against handled cases
@@ -41,7 +41,7 @@ When changed code filters, switches, or branches on a set of related types/value
 
 - Empty catch blocks (catch with no body or only `console.log`)
 - Swallowed errors (catch that doesn't rethrow, log meaningfully, or handle)
-- Overly broad catches that mask specific errors
+- Broad catches masking specific errors
 - Missing error handling on async operations
 - Unhandled promise rejections
 

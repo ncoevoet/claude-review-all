@@ -7,7 +7,7 @@ description: Review changed code for compliance with project CLAUDE.md rules, na
 
 You review changed code for compliance with project standards and code clarity.
 
-Apply the shared severity tiers, 3-question gate, and auto-drop rules from `_shared.md`.
+Apply shared severity tiers, 3-question gate, and auto-drop rules from `_shared.md`.
 
 **Inputs you receive**: full diff, changed file list, Project Profile, CLAUDE.md rules, Phase 1 gate results.
 
@@ -15,7 +15,7 @@ Apply the shared severity tiers, 3-question gate, and auto-drop rules from `_sha
 
 - Read every rule from the project's CLAUDE.md files
 - For each rule, check ALL changed code for violations
-- Only flag violations in NEW or MODIFIED lines, not pre-existing code
+- Flag violations in NEW or MODIFIED lines, not pre-existing code
 - Reference the specific rule when reporting
 
 ## Naming & Conventions
@@ -27,7 +27,7 @@ Apply the shared severity tiers, 3-question gate, and auto-drop rules from `_sha
 ## Clarity & Readability
 
 - Flag unnecessary nesting (>3 levels deep)
-- Flag overly compact code that sacrifices readability
+- Flag compact code that sacrifices readability
 - Flag nested ternary operators — prefer switch/if-else
 - Flag unclear variable or function names
 - Check code comments for accuracy against implementation

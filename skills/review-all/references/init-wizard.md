@@ -1,6 +1,6 @@
 # Init Wizard — `/review-all init`
 
-Loaded by `/review-all` when `$ARGUMENTS == "init"`. Replaces the review flow with an interactive setup that writes a populated `.claude/review-all.json`.
+Loaded by `/review-all` when `$ARGUMENTS == "init"`. Replaces review flow with interactive setup that writes a populated `.claude/review-all.json`.
 
 ## When to run
 
@@ -9,12 +9,12 @@ User explicitly invoked `/review-all init`. Do NOT auto-trigger from a missing c
 ## Pre-checks
 
 1. If `.claude/review-all.json` already exists → ask via `AskUserQuestion` whether to overwrite, merge, or cancel.
-2. Run Phase 0.0 preflight first (so the wizard knows which optional tools are available; mention any missing ones in the summary at the end).
+2. Run Phase 0.0 preflight first (so wizard knows which optional tools are available; mention any missing ones in the summary at end).
 3. Run Phase 0.3 (language/framework detection) — needed to suggest sensible defaults.
 
 ## Questions (via `AskUserQuestion`, one at a time)
 
-Each question must have ≤4 options; the user can always pick "Other" for a custom value.
+Each question must have ≤4 options; user can always pick "Other" for a custom value.
 
 | # | Header | Question | Options | Maps to |
 |---|--------|----------|---------|---------|
@@ -30,11 +30,11 @@ Skip a question if it doesn't apply. Specifically:
 
 ## Write
 
-Build the config object — only include keys the user explicitly chose; rely on documented defaults for the rest (keeps the file small and forward-compatible).
+Build the config object — only include keys the user explicitly chose; rely on documented defaults for the rest (keeps file small and forward-compatible).
 
-Write atomically to `.claude/review-all.json` after creating the parent dir.
+Write atomically to `.claude/review-all.json` after creating parent dir.
 
-Also write `.claude/review-all.json.example` — a fully-populated, plain-JSON copy of the schema with every key set to its documented default. Per-key commentary lives in `references/config-keys.md`, not inline in the JSON (keeps the example parseable by stock tooling).
+Also write `.claude/review-all.json.example` — a fully-populated, plain-JSON copy of the schema with every key set to its documented default. Per-key commentary lives in `references/config-keys.md`, not inline in JSON (keeps example parseable by stock tooling).
 
 ## Summary
 
@@ -48,4 +48,4 @@ review-all configured.
 Next: run `/review-all` on a dirty tree or `/review-all PR #N`.
 ```
 
-Exit cleanly. Do NOT chain into a review — the user asked to init, not to review.
+Exit cleanly. Do NOT chain into a review — user asked to init, not to review.

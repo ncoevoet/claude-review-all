@@ -1,6 +1,6 @@
 # Phase 4 — Post-Report Choices
 
-Loaded by `/review-all` Phase 4. Presents the post-report action menu, including the apply-fixes sub-menu, loop, and guardrails.
+Loaded by `/review-all` Phase 4. Presents the post-report action menu, apply-fixes sub-menu, loop, and guardrails.
 
 ## Table of Contents
 
@@ -13,9 +13,9 @@ Loaded by `/review-all` Phase 4. Presents the post-report action menu, including
 
 After printing the report, present a **fix-scope menu** via `AskUserQuestion` (single-select) listing the four primary fix actions below. Skip Phase 4 entirely if every section says "None found."
 
-Every finding in the report MUST be prefixed with its number (Finding 1, Finding 2, …) — main sections AND appendix. The numbered list is what the **Custom** option references via `#N` / `N` / `N-M`.
+Every finding in the report MUST be prefixed with its number (Finding 1, Finding 2, …) — main sections AND appendix. The numbered list is what **Custom** references via `#N` / `N` / `N-M`.
 
-Build the option list dynamically — only include scopes that have at least one matching finding. The follow-up menu (after the chosen action completes) presents extended options via `AskUserQuestion` with `multiSelect: true`, and always includes "Skip / done" (selecting it terminates the loop even if other options are also selected — `Skip / done` is dominant).
+Build the option list dynamically — only include scopes with at least one matching finding. The follow-up menu (after the chosen action completes) presents extended options via `AskUserQuestion` with `multiSelect: true`, and always includes "Skip / done" (selecting it terminates the loop even if other options are also selected — `Skip / done` is dominant).
 
 **Composition rules** when multiple options are selected:
 1. Apply fixes runs first (if chosen), since later actions may depend on the modified tree.
@@ -28,7 +28,7 @@ The apply-fixes sub-menu stays **single-select** — scopes are mutually exclusi
 
 ## Available choices
 
-AskUserQuestion options cap at 4. The primary menu is the four fix-scope actions below (single-select). Everything else lives in the follow-up extended menu that opens after the chosen action completes (or via **Custom** → Cancel → extended menu).
+AskUserQuestion options cap at 4. The primary menu is the four fix-scope actions below (single-select). Everything else lives in the follow-up extended menu opened after the chosen action completes (or via **Custom** → Cancel → extended menu).
 
 ### Primary fix-scope menu (single-select, in order)
 
@@ -39,7 +39,7 @@ AskUserQuestion options cap at 4. The primary menu is the four fix-scope actions
 | **Fix critical + important + debt** | At least one 🔴/🟠/🟡 finding | Apply 🔴 + 🟠 + 🟡 findings |
 | **Custom (C/I/D/S + #IDs)** | Any finding exists | Prompt for a free-text expression mixing severity letters and finding IDs (grammar below) → apply the UNION |
 
-If none of the first three scopes have matching findings (e.g. only 🔵 suggestions), still offer **Custom**. If there are zero actionable findings, skip Phase 4 entirely.
+If none of the first three scopes have matching findings (e.g. only 🔵 suggestions), still offer **Custom**. If zero actionable findings, skip Phase 4 entirely.
 
 #### Custom expression grammar
 
@@ -50,7 +50,7 @@ C  I  D  S        severity letters (case-insensitive)
 1-7   #3-#9       inclusive range (# optional on either side)
 ```
 
-Separators: comma, whitespace, or the word `and` — all interchangeable. Result = UNION of every matched finding ID; duplicates collapse. Severity letters expand to all in-report findings of that tier.
+Separators: comma, whitespace, or the word `and` — interchangeable. Result = UNION of every matched finding ID; duplicates collapse. Severity letters expand to all in-report findings of that tier.
 
 Examples:
 - `I D #11`    → all 🟠 + all 🟡 + Finding 11
@@ -61,7 +61,7 @@ Numeric-only input (`1,3,7-9`) remains valid — strict superset of the old "Sel
 
 #### Custom prompt mechanism (hard rule)
 
-`AskUserQuestion` caps options at 4. Do NOT build a picker with one option per finding when `Custom` is picked — that crashes with `InputValidationError: array too_big` whenever a report has >4 findings (observed twice in real sessions).
+`AskUserQuestion` caps options at 4. Do NOT build a picker with one option per finding when `Custom` is picked — crashes with `InputValidationError: array too_big` whenever a report has >4 findings (observed twice in real sessions).
 
 Decision tree for the `Custom` follow-up:
 
@@ -69,14 +69,14 @@ Decision tree for the `Custom` follow-up:
 2. **Total > 4** → AskUserQuestion with `multiSelect: false` and exactly these 2 options:
    - `"Type expression (grammar shown above)"` — user picks this, types the expression via `Other` free-text.
    - `"Cancel — back to extended menu"`.
-   Print the grammar block (the table above) as plain text in the question body so the user has a reference.
-3. **Never auto-bundle** findings into ad-hoc groups like `"All debt + suggested (4-8)"` to dodge the cap — bundles obscure intent and the grammar handles it cleanly (`D S` for the same union).
+   Print the grammar block (the table above) as plain text in the question body for reference.
+3. **Never auto-bundle** findings into ad-hoc groups like `"All debt + suggested (4-8)"` to dodge the cap — bundles obscure intent, the grammar handles it cleanly (`D S` for the same union).
 
-The bundled "save report" action is no longer in the primary menu — it lives in the extended menu and is also auto-offered after any successful fix run.
+The bundled "save report" action no longer in the primary menu — lives in the extended menu and auto-offered after any successful fix run.
 
 ### Extended menu (follow-up, multi-select)
 
-Shown after the primary fix action completes, OR if the user cancels the primary menu via AskUserQuestion's `Other` → `more`. Always includes `Skip / done`.
+Shown after the primary fix action completes, OR if user cancels the primary menu via AskUserQuestion's `Other` → `more`. Always includes `Skip / done`.
 
 | Label | When to offer | Action |
 |-------|---------------|--------|
@@ -103,13 +103,13 @@ The primary menu IS the apply-fixes scope selector — no extra sub-menu round. 
 | Fix critical + important + debt | 🔴 + 🟠 + 🟡 |
 | Custom (C/I/D/S + #IDs) | UNION of expanded severity letters and explicit IDs/ranges (see grammar above) |
 
-Additional scopes (Fix all 🔵, Fix by agent) are available from the extended menu under **Apply fixes (alternate scopes)**.
+Additional scopes (Fix all 🔵, Fix by agent) available from the extended menu under **Apply fixes (alternate scopes)**.
 
 For each finding in the chosen scope (file-then-line order):
-1. **Mandatory — never skip**: `Read` the target file before `Edit`. The Edit tool rejects writes without a prior Read in the same session, so skipping this guarantees `<tool_use_error>File has not been read yet</tool_use_error>`. Re-Read for every fix even on adjacent lines and even if the file was Read earlier in the same apply batch — earlier Edits in the batch invalidate the cached read state.
+1. **Mandatory — never skip**: `Read` the target file before `Edit`. The Edit tool rejects writes without a prior Read in the same session, so skipping guarantees `<tool_use_error>File has not been read yet</tool_use_error>`. Re-Read for every fix even on adjacent lines and even if the file was Read earlier in the same apply batch — earlier Edits invalidate the cached read state.
 2. Apply the fix using `Edit` — use the "Fix" text from the finding.
 3. If the fix can't be a single targeted Edit (cross-file, new file, architectural) → record as `manual follow-up`, do NOT attempt.
-4. If `Edit` returns `String to replace not found` → record as `manual follow-up: code drifted since review-time` and move on. Do NOT retry on a guessed string — the evidence string in the report is frozen at review-time, the file may have moved on (especially during multi-fix batches where earlier fixes shifted line numbers).
+4. If `Edit` returns `String to replace not found` → record as `manual follow-up: code drifted since review-time` and move on. Do NOT retry on a guessed string — the evidence string is frozen at review-time, the file may have moved on (especially during multi-fix batches where earlier fixes shifted line numbers).
 5. Record per-finding outcome: `applied` / `manual follow-up` / `skipped (code changed)` / `guardrail-blocked`.
 
 After all edits, re-run Phase 1 gates against the modified tree:
@@ -128,7 +128,7 @@ After all edits, re-run Phase 1 gates against the modified tree:
 | F44 | 🔵  | guardrail-blocked   | finding scope=suggested; not in chosen scope |
 ```
 
-Outcome values are exhaustive: `applied` | `manual follow-up` | `skipped` | `guardrail-blocked`. Every finding in the chosen scope appears in the table — silent omission was the #1 user-friction signal observed in real sessions ("why F25 not done?").
+Outcome values are exhaustive: `applied` | `manual follow-up` | `skipped` | `guardrail-blocked`. Every finding in the chosen scope appears in the table — silent omission was the #1 user-friction signal in real sessions ("why F25 not done?").
 
 If a previously-passing gate now fails: list failing output, suggest `git diff` / `git checkout --` rollback. **Never auto-rollback** — user decides.
 
@@ -138,19 +138,19 @@ After completing a non-terminal choice (anything except "Skip / done"), present 
 
 ## Auto-delta after successful apply-fixes
 
-When apply-fixes completes AND **all** post-fix gates pass (Typecheck ✅ + Lint ✅ + Tests ✅, ignoring any gate that was N/A or SKIP before fixes), the orchestrator automatically runs a scoped **delta review** before re-presenting the menu:
+When apply-fixes completes AND **all** post-fix gates pass (Typecheck ✅ + Lint ✅ + Tests ✅, ignoring any gate that was N/A or SKIP before fixes), the orchestrator runs a scoped **delta review** before re-presenting the menu:
 
 - Scope = the just-edited files only (the actual fix target set, not the original review target).
 - Phases run: 1 → 2 (parallel agents on the narrow slice) → 2.5 (verify) → 3 (delta report).
-- The delta report is appended to the existing report under a new `## Post-fix delta` section. No new file is written.
-- The standard menu then re-opens, now including "Re-run review on fixed code" for the full target if the user wants the broader pass too.
+- Delta report appended to the existing report under a new `## Post-fix delta` section. No new file written.
+- Standard menu then re-opens, now including "Re-run review on fixed code" for the full target if user wants the broader pass.
 
 **Do NOT trigger auto-delta** when:
-- Any post-fix gate failed or timed out → surface the gate output, let the user decide (rollback, manually fix, etc.).
-- Zero fixes were applied (all manual follow-up / skipped) → no edits to verify.
-- `applied + manual-follow-up == 0` → there's nothing to re-review.
+- Any post-fix gate failed or timed out → surface the gate output, let user decide (rollback, manually fix, etc.).
+- Zero fixes applied (all manual follow-up / skipped) → no edits to verify.
+- `applied + manual-follow-up == 0` → nothing to re-review.
 
-Rationale: in observed sessions the user almost always picked "Re-run review on fixed code" after a clean apply. Auto-delta cuts one menu round; gate-pass gating means it never surprises the user with a destabilized tree.
+Rationale: in observed sessions user almost always picked "Re-run review on fixed code" after a clean apply. Auto-delta cuts one menu round; gate-pass gating means it never surprises user with a destabilized tree.
 
 ## Guardrails
 

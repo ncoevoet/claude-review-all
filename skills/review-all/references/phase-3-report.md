@@ -4,20 +4,20 @@ Loaded by `/review-all` Phase 3. Synthesizes verified findings into a structured
 
 ## Intent summary
 
-Generate a 2-line "what this change appears to do" summary derived from:
+Generate a 2-line "what this change appears to do" summary from:
 - Commit message(s)
 - File names and structure changed
 - PR title/description if available
 
-This helps the user calibrate findings.
+Helps the user calibrate findings.
 
 ## Numbering
 
-Number findings continuously across all sections (Finding 1, 2, 3…) for easy reference in Phase 4. **Mandatory**: every finding — Critical, Important, Debt, Suggested, Questions, AND Appendix — MUST be prefixed with `**Finding N**:` using a single global counter. The Phase 4 menu's **Custom** option (`#N` syntax) depends on this. Never omit the number, never reset between sections, never reuse a number.
+Number findings continuously across all sections (Finding 1, 2, 3…) for Phase 4 reference. **Mandatory**: every finding — Critical, Important, Debt, Suggested, Questions, AND Appendix — MUST be prefixed with `**Finding N**:` using a single global counter. The Phase 4 menu's **Custom** option (`#N` syntax) depends on this. Never omit the number, never reset between sections, never reuse a number.
 
 ## Severity-letter emphasis
 
-Section headers MUST bold the leading letter so users can read off the legal Custom-menu tokens directly from the report:
+Section headers MUST bold the leading letter so users read legal Custom-menu tokens directly from the report:
 
 - `## 🔴 **C**ritical`
 - `## 🟠 **I**mportant`
@@ -25,7 +25,7 @@ Section headers MUST bold the leading letter so users can read off the legal Cus
 - `## 🔵 **S**uggested`
 - `## ⚪ Questions` (no severity-letter token)
 
-This mirrors the Phase 4 grammar (`C`/`I`/`D`/`S`) so the report itself documents the menu syntax.
+Mirrors the Phase 4 grammar (`C`/`I`/`D`/`S`) so the report documents the menu syntax.
 
 ## Report Template
 
@@ -92,5 +92,5 @@ This mirrors the Phase 4 grammar (`C`/`I`/`D`/`S`) so the report itself document
 ## Section rules
 
 - If a section has no findings, write "None found." (omit only Dependency Changes / Questions when empty)
-- Every main-section finding must have score ≥ 75
+- Every main-section finding must score ≥ 75
 - Risk Level: High if any 🔴, Medium if 🟠/🟡, Low otherwise
