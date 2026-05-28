@@ -1,0 +1,34 @@
+{
+  "id": "08-n-plus-one",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "New code issues one DB query per loop iteration (N+1), using a parameterized query so the only issue is performance.",
+    "files": {
+      "src/orders/list.ts": {
+        "after": "import { db } from '../db';\n\nexport async function listOrderTotals(orderIds: string[]) {\n  const totals = [];\n  for (const id of orderIds) {\n    const rows = await db.query('SELECT amount FROM items WHERE order_id = ?', [id]);\n    totals.push(rows.reduce((s: number, r: { amount: number }) => s + r.amount, 0));\n  }\n  return totals;\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "n-plus-one",
+        "file": "src/orders/list.ts",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags an N+1 / query-in-a-loop performance problem in listOrderTotals (one DB query per order id) at IMPORTANT, DEBT, or SUGGESTED severity, ideally suggesting a single batched query (WHERE order_id IN (...)) or a join. FAIL if the N+1 pattern is missed entirely."
+  },
+  "expected_behavior": [
+    "Performance agent flags the per-iteration DB query (N+1) and suggests batching"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag SQL injection (the query is parameterized)"
+  ]
+}

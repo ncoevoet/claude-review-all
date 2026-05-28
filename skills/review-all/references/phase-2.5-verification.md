@@ -66,4 +66,6 @@ STATE_SWEEP_CHANGED_KEYS=changed-keys.json \
   python3 scripts/state-sweep.py .claude/review-all/state.json "$HEAD_SHA" seen-keys.json
 ```
 
-The script applies the transitions documented in `state-file.md`: `snoozed → open` (expired), `open → fixed` (code changed AND not re-seen), `open → stale` (`miss_count >= 2` or >30 days unseen), `wontfix → open` (code changed). Writes the file atomically and prints a one-line summary. Orchestrator does not need to re-implement rules in prose.
+The script applies the transitions documented in `state-file.md`: `snoozed → open` (expired), `open → fixed` (code changed AND not re-seen), `open → stale` (`miss_count >= 2` or >30 days unseen), `wontfix → open` (code changed), and `fixed/stale → open` (key re-surfaces this run = regression). It writes the file atomically and prints a one-line summary.
+
+The script sweeps **existing** entries only. The orchestrator still inserts entries for newly-seen `root_cause_key`s and refreshes each entry's `code_hash`/severity/`file_line` (`state-file.md` step 3) — the script is not handed that per-finding metadata. Run the script for the sweep; do step-3 insertion/refresh in the orchestrator.

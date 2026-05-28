@@ -4,7 +4,7 @@
 # Pure read-only; never executes test/lint/typecheck — it only locates them.
 
 set -u
-cd "${1:-.}"
+cd "${1:-.}" || exit 1
 
 emit_kv() { printf '"%s":%s' "$1" "$2"; }
 json_str() { printf '"%s"' "${1//\"/\\\"}"; }
@@ -18,8 +18,18 @@ build_cmd=""
 
 read_package_json_script() {
   local key=$1
-  if [[ -f package.json ]] && command -v jq >/dev/null 2>&1; then
+  [[ -f package.json ]] || return 0
+  if command -v jq >/dev/null 2>&1; then
     jq -r --arg k "$key" '.scripts[$k] // empty' package.json 2>/dev/null
+  elif command -v node >/dev/null 2>&1; then
+    node -e 'const s=((require("./package.json").scripts)||{})[process.argv[1]];process.stdout.write(s||"")' "$key" 2>/dev/null
+  else
+    # jq and node both absent: best-effort scrape of the "scripts" block so JS
+    # test/lint/build gates do not silently vanish on a minimal toolchain.
+    sed -n '/"scripts"[[:space:]]*:/,/}/p' package.json 2>/dev/null \
+      | grep -oE "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" \
+      | head -1 \
+      | sed -E "s/.*:[[:space:]]*\"([^\"]*)\"/\1/"
   fi
 }
 

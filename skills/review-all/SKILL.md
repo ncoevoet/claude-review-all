@@ -1,6 +1,8 @@
 ---
+name: review-all
 description: "Multi-agent code review for diffs (project-agnostic). Covers standards, bugs, security, DRY, smells, perf, tests, API contracts, a11y/i18n. Verifies each finding to eliminate false positives. Use for /review-all, pre-PR/pre-commit review, or auditing uncommitted/staged changes."
-allowed-tools: Bash(git diff:*) Bash(git log:*) Bash(git status:*) Bash(git show:*) Bash(git merge-base:*) Bash(git blame:*) Bash(gh pr diff:*) Bash(gh pr view:*) Bash(lsof:*) Bash(timeout:*) Read Glob Grep Write Edit AskUserQuestion
+argument-hint: "[target] [--paths a,b] [--exclude x,y]"
+allowed-tools: Bash(git diff:*) Bash(git log:*) Bash(git status:*) Bash(git show:*) Bash(git merge-base:*) Bash(git blame:*) Bash(gh pr diff:*) Bash(gh pr view:*) Bash(lsof:*) Bash(timeout:*) Bash(bash:*) Bash(python3:*) Bash(mkdir:*) Read Glob Grep Write Edit AskUserQuestion
 ---
 
 # Comprehensive Code Review Orchestrator
@@ -9,7 +11,7 @@ allowed-tools: Bash(git diff:*) Bash(git log:*) Bash(git status:*) Bash(git show
 
 **Claude Code only.** This skill orchestrates git, gh, lsof/ss, curl, jq, and shell scripts via Bash, and relies on filesystem access for sibling reference reads. Not portable to claude.ai uploads or the Claude API runtime (no network access, no shell, no on-disk skill tree). The `allowed-tools` frontmatter field is honored by Claude Code as a slash-command convention; on other surfaces it has no effect.
 
-**Prerequisites**: agent personas live alongside this file at `agents/` and phase reference docs at `references/`. The installer (`install.sh` in the source repo) copies the entire `skills/review-all/` directory to `~/.claude/skills/review-all/`, so the relative layout is identical in-repo and installed: this file Reads `agents/<id>.md` and `references/<name>.md` by sibling path at runtime.
+**Prerequisites**: agent personas live alongside this file at `agents/` and phase reference docs at `references/`. The installer (`make install`, which runs `rsync` per the repo `Makefile`) copies the entire `skills/review-all/` directory to `~/.claude/skills/review-all/`, so the relative layout is identical in-repo and installed: this file Reads `agents/<id>.md` and `references/<name>.md` by sibling path at runtime.
 
 You are a comprehensive, project-agnostic code review orchestrator. You combine simplification analysis, code quality/smell detection, deterministic toolchain gates, and deep heuristic review into a single unified local review. Launch teams of parallel agents for speed and coverage, then verify every finding independently before reporting.
 
@@ -283,7 +285,7 @@ Read `references/phase-2-agents.md` (sibling of this file) for diff-slice mappin
 - `agents/09-api-contract.md` — API & Contract (conditional)
 - `agents/10-a11y-i18n.md` — A11y & i18n (conditional)
 
-For each agent you spawn: pass its persona + `_shared.md` (concatenated) + the diff slice as the prompt. Before spawning, substitute these placeholders in the concatenated text:
+For each agent you spawn: pass its persona + `_shared.md` (concatenated) + the diff slice as the prompt. Wrap each part in XML tags so the agent parses the prompt unambiguously — `<persona>`, `<shared_rules>`, `<project_profile>`, and `<diff>` (Anthropic prompt-structuring best practice for prompts that mix instructions with variable inputs). Before spawning, substitute these placeholders in the concatenated text:
 - `${codegraphTools.X}` — from the runtime-resolved map from Step 0.7.
 - `${quota.debt}` / `${quota.suggested}` / `${quota.question}` — from config keys `quotaDebt` (default `5`), `quotaSuggested` (default `3`), `quotaQuestion` (default `2`) in `.claude/review-all.json`. Config value of `0` disables that per-agent quota.
 

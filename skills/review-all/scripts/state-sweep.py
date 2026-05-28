@@ -20,9 +20,18 @@ Transitions implemented:
     (this script can't read code; the caller passes a separate JSON of
     keys-whose-code-changed via env var STATE_SWEEP_CHANGED_KEYS=path)
   - wontfix whose code_hash no longer matches → open
+  - fixed/stale → open when the key is seen again this run (regression):
+    a previously-resolved finding that re-surfaces is reopened and
+    fix_commit_sha is cleared.
 
-This script intentionally does NOT compute code hashes; the orchestrator
-provides them. It only applies the lifecycle bookkeeping.
+Scope / contract: this script sweeps EXISTING entries only. It applies the
+lifecycle transitions above and refreshes last_seen_sha/last_seen_at/
+miss_count for re-seen entries. It intentionally does NOT:
+  - insert entries for brand-new root_cause_keys seen this run, nor
+  - compute code hashes or refresh severity/file_line.
+Those require per-finding metadata the script is not given. The orchestrator
+owns new-entry insertion and code_hash/metadata refresh (references/
+state-file.md step 3); this script owns the sweep (step 4).
 """
 
 import json
@@ -83,7 +92,8 @@ def main():
 
     now = datetime.now(tz=timezone.utc)
     transitions = {"snoozed_to_open": 0, "open_to_fixed": 0,
-                   "open_to_stale": 0, "wontfix_to_open": 0}
+                   "open_to_stale": 0, "wontfix_to_open": 0,
+                   "reopened_on_resight": 0}
 
     for key, entry in state["findings"].items():
         status = entry.get("status", "open")
@@ -92,16 +102,20 @@ def main():
         seen_this_run = key in seen_keys
         code_changed = key in changed_keys
 
+        # "Wake-up" transitions return a suppressed finding to the normal
+        # lifecycle; per state-file.md it is re-evaluated on the NEXT run, so do
+        # not let them cascade into the open-sweep below in the same pass (e.g.
+        # wontfix -> open must not immediately become "fixed" this run).
         if status == "snoozed" and snoozed_until and snoozed_until < now:
             entry["status"] = "open"
             transitions["snoozed_to_open"] += 1
-            status = "open"
+            continue
 
         if status == "wontfix" and code_changed:
             entry["status"] = "open"
             entry["fix_commit_sha"] = None
             transitions["wontfix_to_open"] += 1
-            status = "open"
+            continue
 
         if status == "open" and not seen_this_run:
             if code_changed:
@@ -116,6 +130,12 @@ def main():
                 elif last_seen_at and (now - last_seen_at) > timedelta(days=STALE_DAYS):
                     entry["status"] = "stale"
                     transitions["open_to_stale"] += 1
+
+        if seen_this_run and status in ("fixed", "stale"):
+            entry["status"] = "open"
+            entry["fix_commit_sha"] = None
+            transitions["reopened_on_resight"] += 1
+            status = "open"
 
         if seen_this_run and status == "open":
             entry["last_seen_sha"] = head_sha

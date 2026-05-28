@@ -13,7 +13,7 @@
 # files are designed to remain valid once a richer runner exists.
 
 set -u
-cd "$(dirname "$0")/.."   # skill root: skills/review-all/
+cd "$(dirname "$0")/.." || exit 1   # skill root: skills/review-all/
 
 filter=${1:-}
 fail=0

@@ -1,0 +1,33 @@
+{
+  "id": "05-false-positive-resistance",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Changed code uses `any`, but with a documented eslint-disable — an intentional, silenced exception the review must respect (auto-drop list).",
+    "files": {
+      "src/adapter.ts": {
+        "before": "export function load() {\n  return null;\n}\n",
+        "after": "import { thirdParty } from 'untyped-lib';\n\nexport function load() {\n  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped third-party API, narrowed at the boundary below\n  const raw: any = thirdParty();\n  return typeof raw === 'object' && raw !== null ? raw : null;\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      "the documented eslint-disabled `any` on `raw` as a defect to remove (the per-line suppression with a reason is auto-dropped)"
+    ],
+    "max_critical": 0
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report respects the documented per-line `eslint-disable` and does NOT raise the suppressed `any` on `raw` as a defect to remove or fix, and invents no CRITICAL. Separate, legitimate, measurable observations — e.g. that the runtime `typeof raw === 'object'` guard does not statically narrow `any` (with a concrete fix), or a QUESTION about the undeclared `untyped-lib` dependency — are acceptable at SUGGESTED/QUESTION severity and do NOT cause a FAIL. FAIL only if the report flags the suppressed `any` itself as a DEBT/IMPORTANT/CRITICAL problem to remove, or invents a CRITICAL/IMPORTANT that is not real."
+  },
+  "expected_behavior": [
+    "Report respects the documented eslint-disable and does not flag the silenced any as a defect to remove",
+    "May separately note (at SUGGESTED/QUESTION) that the runtime typeof guard does not statically narrow `any`"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the explicitly-silenced any as a DEBT/IMPORTANT/CRITICAL problem to remove",
+    "Does NOT invent a CRITICAL"
+  ]
+}

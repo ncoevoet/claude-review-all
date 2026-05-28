@@ -1,0 +1,39 @@
+{
+  "id": "06-preexisting-vuln-in-audit",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "New in-diff code passes user input into a pre-existing string-concatenation SQL query. The vulnerable rawQuery line is unchanged, but the diff calls into it (semantic adjacency) — the security-audit escape should surface it.",
+    "files": {
+      "src/db/query.ts": {
+        "before": "export function rawQuery(sql) {\n  return db.exec(sql);\n}\n"
+      },
+      "src/api/users.ts": {
+        "before": "import { rawQuery } from '../db/query';\n\nexport function listUsers() {\n  return rawQuery('SELECT * FROM users');\n}\n",
+        "after": "import { rawQuery } from '../db/query';\n\nexport function listUsers() {\n  return rawQuery('SELECT * FROM users');\n}\n\nexport function findUser(name) {\n  return rawQuery(\"SELECT * FROM users WHERE name = '\" + name + \"'\");\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "injection",
+        "file": "src/api/users.ts",
+        "min_severity": "CRITICAL",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags a SQL-injection vulnerability in the new findUser() in src/api/users.ts (user input concatenated into SQL passed to rawQuery) at CRITICAL or IMPORTANT severity, in the main section. The pre-existing rawQuery definition being unchanged must NOT be used to drop it. FAIL if no injection finding surfaces, or it is dropped as 'pre-existing'."
+  },
+  "expected_behavior": [
+    "Bugs & Security or Security Deep Dive flags SQL injection in findUser (user input concatenated into SQL)",
+    "The pre-existing rawQuery is not used as a reason to drop the in-diff injection (security-audit escape)"
+  ],
+  "expected_not_behavior": [
+    "Does NOT silently drop the injection as 'pre-existing'"
+  ]
+}

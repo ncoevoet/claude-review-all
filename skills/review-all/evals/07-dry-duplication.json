@@ -1,0 +1,38 @@
+{
+  "id": "07-dry-duplication",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "New code re-implements an existing helper's money-formatting logic instead of reusing it (DRY).",
+    "files": {
+      "src/util/format.ts": {
+        "before": "export function formatMoney(cents: number): string {\n  return (cents / 100).toFixed(2);\n}\n"
+      },
+      "src/report/invoice.ts": {
+        "after": "export function renderInvoice(totalCents: number): string {\n  const amount = (totalCents / 100).toFixed(2);\n  return `Total: $${amount}`;\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "duplicated-logic",
+        "file": "src/report/invoice.ts",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": 0
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report raises a DEBT or SUGGESTED finding noting that renderInvoice in src/report/invoice.ts re-implements the cents->string money formatting already provided by formatMoney in src/util/format.ts, and suggests reusing the existing helper. FAIL if it misses the duplication or invents a CRITICAL."
+  },
+  "expected_behavior": [
+    "DRY agent flags duplicated money-formatting logic and suggests reusing formatMoney"
+  ],
+  "expected_not_behavior": [
+    "Does NOT invent a CRITICAL for a simple duplication"
+  ]
+}

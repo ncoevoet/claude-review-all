@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "description": "Comprehensive, project-agnostic, multi-agent code review for Claude Code with verification to eliminate false positives.",
   "author": {
-    "name": "Nicolas Coevoet"
+    "name": "Nicolas Coevoet",
+    "url": "https://github.com/ncoevoet"
   },
   "homepage": "https://github.com/ncoevoet/claude-review-all",
   "repository": "https://github.com/ncoevoet/claude-review-all",

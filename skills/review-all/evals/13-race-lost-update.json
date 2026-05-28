@@ -1,0 +1,34 @@
+{
+  "id": "13-race-lost-update",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "New code does a non-atomic read-modify-write across an await on shared store state — concurrent calls lose updates (race condition).",
+    "files": {
+      "src/views/counter.ts": {
+        "after": "interface Store {\n  get(key: string): Promise<number>;\n  set(key: string, value: number): Promise<void>;\n}\n\nexport async function bumpViews(store: Store, key: string): Promise<void> {\n  const current = await store.get(key);\n  await store.set(key, current + 1);\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "race-condition",
+        "file": "src/views/counter.ts",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report identifies the non-atomic read-modify-write in bumpViews (await store.get then await store.set with no locking/atomic increment) as a race condition / lost-update risk under concurrent calls, at IMPORTANT, DEBT, or SUGGESTED severity, ideally suggesting an atomic increment or a transaction. FAIL if the concurrency / lost-update risk is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs agent flags the read-modify-write race (lost update) and suggests an atomic operation"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim the single-threaded path is buggy in isolation (the issue is concurrency)"
+  ]
+}

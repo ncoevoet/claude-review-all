@@ -1,0 +1,27 @@
+{
+  "id": "04-empty-diff-noop",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A committed baseline with NO working-tree changes — nothing to review (edge case).",
+    "files": {
+      "src/index.ts": { "before": "export const ok = true;\n" }
+    }
+  },
+  "success_criteria": {
+    "max_total_findings": 0,
+    "must_not_error": true
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the run handles 'no changes to review' gracefully: it reports there is nothing to review (or reviews the last commit and finds nothing actionable) and does NOT fabricate findings or crash. FAIL if it errors out, hangs, or invents findings about unchanged code."
+  },
+  "expected_behavior": [
+    "Run reports no reviewable changes (or reviews last commit) without fabricating findings"
+  ],
+  "expected_not_behavior": [
+    "Does NOT crash on an empty diff",
+    "Does NOT invent findings about unchanged code"
+  ]
+}

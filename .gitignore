@@ -4,3 +4,12 @@ Thumbs.db
 *.swo
 .idea/
 .vscode/
+
+# /review-all runtime artifacts (generated when running the skill on a repo)
+.claude/cache/
+.claude/reports/
+.claude/review-all/
+
+# Python
+__pycache__/
+*.pyc

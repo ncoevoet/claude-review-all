@@ -1,0 +1,44 @@
+{
+  "id": "09-missing-test-gate",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Repo has a co-located *.spec.ts convention (foo.ts + foo.spec.ts). The diff adds a new exported function src/bar.ts with NO src/bar.spec.ts — the spec-existence check should flag it.",
+    "files": {
+      "package.json": {
+        "before": "{\n  \"name\": \"demo\",\n  \"scripts\": { \"test\": \"jest\" },\n  \"devDependencies\": { \"jest\": \"^29.0.0\" }\n}\n"
+      },
+      "src/foo.ts": {
+        "before": "export function foo(): number {\n  return 1;\n}\n"
+      },
+      "src/foo.spec.ts": {
+        "before": "import { foo } from './foo';\n\ntest('foo returns 1', () => {\n  expect(foo()).toBe(1);\n});\n"
+      },
+      "src/bar.ts": {
+        "after": "export function bar(n: number): number {\n  return n * 2;\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "missing-test",
+        "file": "src/bar.ts",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report surfaces that the new public function in src/bar.ts has no co-located test — either as a 'Spec Existence: MISSING' gate result OR as a finding at DEBT severity or higher — given the repo's *.spec.ts convention (foo.ts has foo.spec.ts). FAIL only if the missing test for bar.ts is not surfaced at all."
+  },
+  "expected_behavior": [
+    "Spec Existence check reports MISSING test for the new src/bar.ts",
+    "Finding references the co-located .spec.ts convention"
+  ],
+  "expected_not_behavior": [
+    "Does NOT demand a test for the unchanged src/foo.ts (it already has one)"
+  ]
+}

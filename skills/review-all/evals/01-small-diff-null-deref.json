@@ -11,6 +11,24 @@
       }
     }
   },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "missing-null-check",
+        "file": "src/user-service.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "must_not_flag": [
+      "the unchanged greet() return template as a separate issue"
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report's MAIN section (not the appendix) contains a finding semantically equivalent to: an unguarded access to user.profile.name in src/user-service.ts that throws a TypeError when profile is null/undefined, at IMPORTANT or CRITICAL severity, with a concrete fix. FAIL if that finding is missing, dropped, appendix-only, or if the report invents unrelated CRITICAL findings."
+  },
   "expected_behavior": [
     "Bugs & Security agent flags a possible null/undefined access on user.profile (no null check)",
     "Finding severity is CRITICAL or IMPORTANT (path: TypeError on missing profile)",

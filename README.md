@@ -117,12 +117,16 @@ Heartbeat lines print at each phase boundary so the user sees forward motion on 
 
 ### Phase 4 — Post-report menu
 
-Default visible options (≤3 + `Skip / done`):
+Skipped entirely when every section says "None found." Otherwise a two-step menu:
 
-- **Apply critical fixes + Save report** (Recommended) — runs when any 🔴 exists
-- **More options…** — reveals deep-dive, generate patch, draft commit, post to PR, snooze, mark wontfix, schedule re-review, etc.
+**Primary fix-scope menu** (`AskUserQuestion`, single-select — only scopes with matching findings are shown):
 
-Menu is **multi-select** — compose `Save report + Post to PR + Snooze F12` in one round.
+- **Fix critical** (Recommended) — apply 🔴 findings
+- **Fix critical + important** — apply 🔴 + 🟠
+- **Fix critical + important + debt** — apply 🔴 + 🟠 + 🟡
+- **Custom (C/I/D/S + #IDs)** — a free-text expression mixing severity letters and finding IDs/ranges (e.g. `I D #11`, `1-7, 11`)
+
+**Extended follow-up menu** (multi-select, opens after the chosen fix action completes; always includes `Skip / done`): Save full report · Deep-dive a finding · Generate fix patches · Draft commit/PR · Post to GitHub PR · Snooze · Mark wontfix · Schedule re-review · Re-run on fixed code. Compose several in one round.
 
 After a clean apply-fixes (all post-fix gates pass), an **auto-delta** scoped review runs against the just-edited files and appends a `## Post-fix delta` section.
 
@@ -192,15 +196,28 @@ If a CodeGraph MCP server is wired into Claude Code and the project has a `.code
 ## Layout
 
 ```
-skills/review-all/
-├── SKILL.md              # orchestrator entry point
-├── agents/               # 10 persona files + _shared.md + verifier.md
-├── references/           # per-phase rules, config schema, state-file lifecycle
-└── scripts/              # preflight, detect-toolchain, dev-server-probe,
-                          # test-pattern-probe, dedupe, state-sweep
+claude-review-all/
+├── skills/review-all/
+│   ├── SKILL.md              # orchestrator entry point
+│   ├── agents/               # 10 persona files + _shared.md + verifier.md
+│   ├── references/           # per-phase rules, config schema, state-file lifecycle
+│   ├── evals/                # labeled scenarios + success criteria + grader rubrics
+│   └── scripts/              # preflight, detect-toolchain, dev-server-probe,
+│                             # test-pattern-probe, dedupe, state-sweep,
+│                             # materialize-fixture, run-evals, run-evals-headless
+├── tests/                    # deterministic unit tests for the scripts
+└── .github/workflows/ci.yml  # shellcheck + test suite
 ```
 
 All plain Markdown / shell / Python — read, fork, extend.
+
+## Development
+
+```bash
+bash tests/run.sh            # shellcheck-clean shell scripts + Python unit tests (no API key)
+```
+
+CI (`.github/workflows/ci.yml`) runs shellcheck + the suite on every push / PR. The eval suite under `skills/review-all/evals/` is materialized into throwaway git repos and LLM-graded headlessly by `scripts/run-evals-headless.sh` (needs the `claude` CLI); see `skills/review-all/evals/README.md`.
 
 ## License
 

@@ -13,6 +13,16 @@ description: Shared severity tiers, verification gate, quotas, and auto-drop rul
 - **🔵 SUGGESTED** — Measurable improvements only (complexity reduction by 3+, vulnerability class elimination, concrete perf gain). If you can't measure the improvement, don't suggest it.
 - **⚪ QUESTION** — Items requiring human judgment about requirements or intent
 
+## Finding-stage stance: coverage over filtering
+
+Your job at this stage is **coverage, not curation**. A separate Phase 2.5 stage (dedupe → adversarial verifier → global caps) is the precision filter — it independently re-reads every finding and silently drops false positives, so you do not pre-filter for confidence or importance here.
+
+Report every issue you can trace, including ones you are uncertain about, as long as it clears the 3-question traceability gate below. Attach an honest **Confidence** (VERIFIED / HIGH / MEDIUM) and **Severity** so the downstream filter can rank and cut — do **not** silently drop a traceable 🔴/🟠 because you suspect it might be intentional or below some importance bar. Surfacing a real bug the verifier later trims beats dropping it here, where nothing can recover it.
+
+This division (broad finding → hostile verify) is the whole design. Models told to "be conservative" or "only report important issues" tend to investigate just as deeply but report fewer findings — silently lowering recall. Push that judgment to the verifier instead.
+
+The per-agent quotas below still apply to the noise tiers (🟡/🔵/⚪) to keep the report focused; 🔴/🟠 are never quota-capped.
+
 ## Per-agent quota
 
 To prevent any single agent from crowding the report:
@@ -39,7 +49,7 @@ Before reporting ANY finding, answer YES to all three:
 2. Is the concern NOT already addressed by existing safeguards (middleware, validators, framework, upstream checks)?
 3. Are you certain about the framework semantics and API contracts involved?
 
-If any answer is NO, drop the finding silently.
+If any answer is NO, drop the finding silently — with one carve-out: if the finding is 🔴/🟠 and only question 3 is uncertain (you cannot fully confirm framework semantics), do not drop it; report it at MEDIUM confidence and let the Phase 2.5 verifier adjudicate. Questions 1 (traceability) and 2 (not already safeguarded) stay hard gates for all severities — a finding you cannot trace, or that is already handled, is noise at any severity.
 
 ## Auto-drop list
 

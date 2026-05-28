@@ -4,10 +4,22 @@
   "query": "/review-all",
   "fixture": {
     "kind": "synthetic-diff",
-    "description": "Mass rename of 200 files: oldName → newName, no semantic change. No bugs introduced. Tests pass.",
+    "description": "Mass rename of 200 files: oldName -> newName, no semantic change. No bugs introduced. Tests pass.",
     "files_changed": 200,
     "rename_only": true,
     "tests_pass": true
+  },
+  "success_criteria": {
+    "max_critical": 0,
+    "max_total_findings": 2,
+    "must_not_flag": [
+      "duplicated logic across the renamed files",
+      "the large diff size itself as a finding"
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report has Risk Level: Low, zero CRITICAL findings, and at most 2 findings total. FAIL if any CRITICAL appears, if total findings exceed 2, or if any finding's justification is essentially 'the diff is large' or a spurious DRY/duplication claim about the renamed symbol."
   },
   "expected_behavior": [
     "Phase 1 gates report PASS for typecheck, lint, tests",

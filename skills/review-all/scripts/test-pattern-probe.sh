@@ -4,7 +4,7 @@
 # Emits JSON: {"pattern":"co-located"|"separate-tree", "suffix":".spec.ts", "framework":"jest"}.
 
 set -u
-cd "${1:-.}"
+cd "${1:-.}" || exit 1
 
 # Sample plausible test file paths via git ls-files (cheap, no recursion).
 mapfile -t candidates < <(git ls-files 2>/dev/null \

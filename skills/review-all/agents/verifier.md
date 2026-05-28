@@ -53,6 +53,8 @@ Apply this only to genuinely tool-confirmed findings, not to agent self-reports.
 
 If a finding's root-cause key appears in 2+ agents' lists: add +10 to the confidence score (capped at 100). Independent confirmation = more reliable.
 
+Run the disproof checks above **first**, then assign the score from their outcome — do not pick a score on first impression and rationalize it. Before emitting each verdict, self-check: "Did I actually re-read the cited source, or am I trusting the evidence snippet?" If you did not fetch the source, do so now.
+
 ## Confidence scoring (0-100)
 
 - **0** — False positive: doesn't hold up, pre-existing, or snoozed

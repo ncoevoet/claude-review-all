@@ -1,0 +1,34 @@
+{
+  "id": "14-resource-leak",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "New code opens a file handle but does not close it on the error path (JSON.parse can throw before close) — a resource leak.",
+    "files": {
+      "src/config/load.ts": {
+        "after": "import { open } from 'fs/promises';\n\nexport async function readConfig(path: string): Promise<unknown> {\n  const fh = await open(path, 'r');\n  const text = await fh.readFile({ encoding: 'utf8' });\n  const parsed = JSON.parse(text);\n  await fh.close();\n  return parsed;\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "resource-leak",
+        "file": "src/config/load.ts",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that the file handle fh is not closed when an error occurs before fh.close() (e.g. JSON.parse throws on malformed input), leaking the handle, and recommends try/finally (or a safe wrapper), at IMPORTANT, DEBT, or SUGGESTED severity. FAIL if the leak on the error path is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs agent flags the unclosed file handle on the throw path and suggests try/finally"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim the happy path leaks (close is reached when no error)"
+  ]
+}

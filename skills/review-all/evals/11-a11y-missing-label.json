@@ -1,0 +1,34 @@
+{
+  "id": "11-a11y-missing-label",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "New icon-only button component with no accessible name (svg is aria-hidden, no text, no aria-label).",
+    "files": {
+      "src/components/IconButton.tsx": {
+        "after": "export function IconButton({ onClick }: { onClick: () => void }) {\n  return (\n    <button onClick={onClick}>\n      <svg width=\"16\" height=\"16\" aria-hidden=\"true\" />\n    </button>\n  );\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "a11y",
+        "file": "src/components/IconButton.tsx",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report raises an accessibility finding that the icon-only <button> in src/components/IconButton.tsx has no accessible name (no text content and the svg is aria-hidden), recommending an aria-label or visible text, at IMPORTANT, DEBT, or SUGGESTED severity. FAIL if the missing accessible name is not flagged."
+  },
+  "expected_behavior": [
+    "A11y/i18n agent flags the icon-only button lacking an accessible name and suggests aria-label"
+  ],
+  "expected_not_behavior": [
+    "Does NOT invent unrelated CRITICAL findings"
+  ]
+}

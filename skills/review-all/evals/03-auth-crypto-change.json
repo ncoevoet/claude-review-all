@@ -11,6 +11,21 @@
       }
     }
   },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "security",
+        "file": "src/auth/session.ts",
+        "min_severity": "CRITICAL",
+        "verdict": "keep"
+      }
+    ],
+    "must_spawn_agent": "security-deep-dive"
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report contains a CRITICAL finding (main section, not appendix) about the MD5 downgrade in src/auth/session.ts that names SHA-256 (or stronger) as the fix. FAIL if the finding is absent, below CRITICAL, appendix-only, or dropped as 'pre-existing'."
+  },
   "expected_behavior": [
     "Security Deep Dive agent spawns (filename matches auth/* pattern)",
     "Bugs & Security agent OR Security Deep Dive flags MD5 downgrade as CRITICAL",
@@ -20,6 +35,6 @@
   "expected_not_behavior": [
     "Report does NOT mark the finding as appendix (score < 75)",
     "Verifier does NOT drop the finding citing 'pre-existing'",
-    "Phase 4 menu DOES include 'Apply critical fixes + Save report' (Recommended)"
+    "Phase 4 primary fix-scope menu includes 'Fix critical' (Recommended)"
   ]
 }

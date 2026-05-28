@@ -1,0 +1,37 @@
+{
+  "id": "12-i18n-hardcoded-string",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Repo uses an i18n t() helper (Welcome.tsx). New component hardcodes a user-facing string instead of using t() — an i18n convention violation.",
+    "files": {
+      "src/ui/Welcome.tsx": {
+        "before": "import { t } from '../i18n';\n\nexport function Welcome() {\n  return <h1>{t('welcome.title')}</h1>;\n}\n"
+      },
+      "src/ui/Goodbye.tsx": {
+        "after": "export function Goodbye() {\n  return <h1>Goodbye, see you soon!</h1>;\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "i18n",
+        "file": "src/ui/Goodbye.tsx",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that the user-facing string in src/ui/Goodbye.tsx ('Goodbye, see you soon!') is hardcoded instead of going through the project's i18n t() helper (which the sibling Welcome.tsx uses), recommending t()/a translation key, at DEBT severity or higher. FAIL if the hardcoded user-facing string is not flagged as an i18n issue."
+  },
+  "expected_behavior": [
+    "A11y/i18n agent flags the hardcoded user-facing string and points to the established t() convention"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag non-user-facing identifiers as i18n issues"
+  ]
+}

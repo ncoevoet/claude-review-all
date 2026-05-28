@@ -1,0 +1,38 @@
+{
+  "id": "15-deleted-file-breaks-importer",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A module is deleted while an unchanged consumer still imports from it — the deletion breaks the importer (semantic adjacency).",
+    "files": {
+      "src/legacy.ts": {
+        "before": "export function legacyHelper(): number {\n  return 42;\n}\n",
+        "delete": true
+      },
+      "src/main.ts": {
+        "before": "import { legacyHelper } from './legacy';\n\nexport function run(): number {\n  return legacyHelper() + 1;\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "api-break",
+        "file": "src/legacy.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that deleting src/legacy.ts breaks the unchanged consumer src/main.ts, which still imports legacyHelper from './legacy' (a now-missing module/export), at IMPORTANT or CRITICAL severity. FAIL if the broken import caused by the deletion is not surfaced."
+  },
+  "expected_behavior": [
+    "Review detects the deletion breaks src/main.ts's import of legacyHelper"
+  ],
+  "expected_not_behavior": [
+    "Does NOT ignore the deleted file just because the importer is unchanged"
+  ]
+}

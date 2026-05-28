@@ -1,0 +1,39 @@
+{
+  "id": "10-api-contract-break",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A public field User.email is renamed to emailAddress. An unchanged consumer (notify.ts) still reads user.email — a breaking API change via semantic adjacency.",
+    "files": {
+      "src/api/user.ts": {
+        "before": "export interface User {\n  id: string;\n  name: string;\n  email: string;\n}\n\nexport function getUser(id: string): User {\n  return { id, name: 'x', email: 'x@example.com' };\n}\n",
+        "after": "export interface User {\n  id: string;\n  name: string;\n  emailAddress: string;\n}\n\nexport function getUser(id: string): User {\n  return { id, name: 'x', emailAddress: 'x@example.com' };\n}\n"
+      },
+      "src/api/notify.ts": {
+        "before": "import { getUser } from './user';\n\nexport function notify(id: string): string {\n  return getUser(id).email;\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "api-break",
+        "file": "src/api/user.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that renaming the public User.email field to emailAddress in src/api/user.ts is a breaking change for existing consumers — ideally naming src/api/notify.ts, which still reads user.email (now undefined) — at IMPORTANT or CRITICAL severity. FAIL if the breaking rename or the broken consumer is missed."
+  },
+  "expected_behavior": [
+    "API/Contract or Bugs agent flags the email -> emailAddress rename as a breaking change",
+    "Finding notes notify.ts still reads the removed user.email"
+  ],
+  "expected_not_behavior": [
+    "Does NOT treat the rename as a harmless cosmetic change"
+  ]
+}
