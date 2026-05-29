@@ -12,6 +12,21 @@ Project-agnostic code review for [Claude Code](https://docs.claude.com/en/docs/c
 
 ## Install
 
+### Plugin (recommended)
+
+Inside Claude Code, add the marketplace and install the plugin:
+
+```
+/plugin marketplace add ncoevoet/claude-review-all
+/plugin install review-all@ncoevoet
+```
+
+`/review-all` is available right away. Update later with `/plugin update review-all@ncoevoet`, remove with `/plugin uninstall review-all@ncoevoet`. CLI equivalents work too: `claude plugin marketplace add ncoevoet/claude-review-all` then `claude plugin install review-all@ncoevoet`. The plugin bundles the skill's `scripts/` and resolves them relative to the skill, so it works wherever Claude Code installs it.
+
+### Manual (`make install`)
+
+For hacking on the skill itself, copy it straight into `~/.claude/skills/`:
+
 ```bash
 git clone https://github.com/ncoevoet/claude-review-all.git
 cd claude-review-all
