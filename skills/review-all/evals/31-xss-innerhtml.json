@@ -1,0 +1,38 @@
+{
+  "id": "31-xss-innerhtml",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "User-submitted text is interpolated into innerHTML with no escaping or sanitization — a cross-site scripting (XSS) sink.",
+    "files": {
+      "src/ui/render-comment.ts": {
+        "after": "// `comment` is text submitted by an end user.\nexport function renderComment(el: { innerHTML: string }, comment: string): void {\n  el.innerHTML = `<div class=\"comment\">${comment}</div>`;\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "security",
+        "file": "src/ui/render-comment.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that renderComment writes the user-submitted `comment` into el.innerHTML without escaping or sanitizing, allowing HTML/script injection (XSS). It should recommend using textContent or sanitizing the input. Severity IMPORTANT or CRITICAL. FAIL if the XSS / unsanitized-innerHTML risk is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs & Security agent flags the unsanitized innerHTML assignment as XSS",
+    "Recommends textContent or sanitization",
+    "Severity IMPORTANT or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT dismiss it because the element type is a minimal stub",
+    "Does NOT require a specific framework's sanitizer"
+  ]
+}

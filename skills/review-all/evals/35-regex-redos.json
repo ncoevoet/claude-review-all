@@ -1,0 +1,38 @@
+{
+  "id": "35-regex-redos",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A validator runs a regex with a nested quantifier against user input. The pattern is vulnerable to catastrophic backtracking (ReDoS) on a crafted non-matching string.",
+    "files": {
+      "src/validate/email.ts": {
+        "after": "// Validates an email-like string. `input` is user-supplied.\nexport function isValidEmail(input: string): boolean {\n  return /^([a-zA-Z0-9]+)+@example\\.com$/.test(input);\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "perf",
+        "file": "src/validate/email.ts",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that isValidEmail's regex contains a nested quantifier — `([a-zA-Z0-9]+)+` — that causes catastrophic backtracking on crafted user input, a ReDoS / CPU-denial-of-service risk on a user-facing validator. It should recommend a linear / non-backtracking pattern (e.g. drop the redundant outer +). Severity IMPORTANT, DEBT, or CRITICAL. The exact term 'ReDoS' is NOT required, but the backtracking/exponential-time blowup must be identified. FAIL if the catastrophic-backtracking risk is not surfaced (merely calling the regex 'too strict' or a style nit does not count)."
+  },
+  "expected_behavior": [
+    "Security/perf agent flags the nested quantifier as catastrophic backtracking / ReDoS",
+    "Recommends a linear pattern",
+    "Severity IMPORTANT, DEBT, or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the regex purely as a correctness/style preference",
+    "Does NOT require a benchmark to confirm the blowup"
+  ]
+}

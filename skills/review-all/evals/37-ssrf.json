@@ -1,0 +1,38 @@
+{
+  "id": "37-ssrf",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A server-side request is issued to a URL taken straight from user input with no validation — server-side request forgery (SSRF).",
+    "files": {
+      "src/proxy/fetch-resource.ts": {
+        "after": "import { request } from \"https\";\n\n// `target` is a URL supplied in the incoming HTTP request.\nexport function fetchResource(target: string): void {\n  request(target, (res) => res.resume()).end();\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "security",
+        "file": "src/proxy/fetch-resource.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that fetchResource issues a server-side request to the user-controlled `target` URL without validation, enabling SSRF (server-side request forgery) — an attacker can make the server reach internal services or cloud metadata endpoints. It should recommend validating against an allowlist and/or blocking internal/loopback/link-local addresses. Severity IMPORTANT or CRITICAL. FAIL if the SSRF risk is not surfaced."
+  },
+  "expected_behavior": [
+    "Security agent flags the unvalidated server-side request to user-controlled URL as SSRF",
+    "Recommends allowlist / internal-range blocking",
+    "Severity IMPORTANT or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT treat it as a generic 'no error handling' note only",
+    "Does NOT require proof of a reachable internal host"
+  ]
+}

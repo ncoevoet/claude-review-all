@@ -1,0 +1,38 @@
+{
+  "id": "24-off-by-one-pagination",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Pagination uses a 1-based page number but computes the slice start as page * pageSize instead of (page - 1) * pageSize, so page 1 silently skips the first page of results.",
+    "files": {
+      "src/list/paginate.ts": {
+        "after": "// Returns page `page` (1-based) of `pageSize` items from `items`.\nexport function pageOf<T>(items: T[], page: number, pageSize: number): T[] {\n  const start = page * pageSize;\n  return items.slice(start, start + pageSize);\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/list/paginate.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags the off-by-one in pageOf: `page` is documented as 1-based but `start = page * pageSize` skips the first page (page 1 starts at index pageSize, not 0). It should recommend `start = (page - 1) * pageSize`. Severity IMPORTANT or CRITICAL. FAIL if the off-by-one / wrong slice start is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs agent flags the off-by-one: 1-based page with start = page * pageSize",
+    "Recommends (page - 1) * pageSize",
+    "Severity IMPORTANT or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim slice() bounds handling is itself wrong",
+    "Does NOT require a runtime crash — the bug is wrong results"
+  ]
+}

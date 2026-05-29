@@ -1,0 +1,39 @@
+{
+  "id": "22-cache-on-failure",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A pending-request cache stores the in-flight promise but never removes the entry when the fetch rejects, so a single failure is cached permanently and every later load of that id returns the same rejected promise.",
+    "files": {
+      "src/data/resource-loader.ts": {
+        "after": "export class ResourceLoader {\n  private readonly pending = new Map<string, Promise<string>>();\n\n  constructor(private readonly fetcher: (id: string) => Promise<string>) {}\n\n  load(id: string): Promise<string> {\n    let p = this.pending.get(id);\n    if (!p) {\n      p = this.fetcher(id);\n      this.pending.set(id, p);\n    }\n    return p;\n  }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "unhandled-error",
+        "file": "src/data/resource-loader.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that ResourceLoader.load stores the in-flight promise in `pending` but never deletes the entry when the fetch REJECTS — so once a load fails, the rejected promise is cached forever and every subsequent load(id) returns that same failure with no retry (a poisoned / negative cache). It should recommend removing the entry on rejection (e.g. a catch that deletes the key). Severity IMPORTANT or CRITICAL. FAIL if the cache-not-evicted-on-failure problem is not surfaced (merely praising the happy-path memoization does not count)."
+  },
+  "expected_behavior": [
+    "Bugs agent flags that a rejected fetch is never evicted from the pending map",
+    "Notes all later loads of that id return the cached rejection (no retry)",
+    "Recommends deleting the cache entry on error",
+    "Severity IMPORTANT or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT treat the de-duplication of concurrent loads as the bug",
+    "Does NOT require a memory-growth argument — the issue is the cached failure"
+  ]
+}

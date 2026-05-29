@@ -1,0 +1,39 @@
+{
+  "id": "30-switch-missing-case",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A switch over a string-literal union omits one member and has no default, so that input falls through to an implicit `return undefined` instead of the declared boolean.",
+    "files": {
+      "src/orders/status.ts": {
+        "after": "export type OrderState = \"pending\" | \"paid\" | \"shipped\" | \"cancelled\";\n\n// Returns whether the order can still be cancelled by the customer.\nexport function isCancellable(state: OrderState): boolean {\n  switch (state) {\n    case \"pending\":\n      return true;\n    case \"paid\":\n      return true;\n    case \"shipped\":\n      return false;\n  }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/orders/status.ts",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that isCancellable's switch does NOT handle the \"cancelled\" member of OrderState and has no default, so passing \"cancelled\" falls through and returns undefined instead of the declared boolean — a non-exhaustive switch / missing case. It should recommend handling \"cancelled\" (or adding a default / exhaustiveness check). Severity IMPORTANT or DEBT. FAIL if the missing \"cancelled\" case is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs agent's completeness analysis flags the missing \"cancelled\" case",
+    "Notes the implicit undefined return for that input",
+    "Recommends handling it or adding a default",
+    "Severity IMPORTANT or DEBT"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim the handled cases are wrong",
+    "Does NOT require a runtime crash — returning undefined is the defect"
+  ]
+}

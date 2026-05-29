@@ -1,0 +1,39 @@
+{
+  "id": "18-swallowed-exception",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A catch block on a payment path swallows the error silently — no log, no rethrow — and returns null, so a failed charge is indistinguishable from any other null result.",
+    "files": {
+      "src/billing/charge.ts": {
+        "after": "export interface Gateway {\n  charge(customerId: string, cents: number): Promise<{ confirmation: string }>;\n}\n\nexport async function chargeCustomer(\n  gw: Gateway,\n  customerId: string,\n  cents: number,\n): Promise<string | null> {\n  try {\n    const result = await gw.charge(customerId, cents);\n    return result.confirmation;\n  } catch (ex) {\n    return null;\n  }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "unhandled-error",
+        "file": "src/billing/charge.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report's MAIN section flags that chargeCustomer swallows the caught error in the catch block — it neither logs nor rethrows nor propagates it, and returns null — so a failed charge is silently hidden and indistinguishable from other null paths on a money-handling path. Severity IMPORTANT or CRITICAL, recommending logging / rethrowing / surfacing the failure. FAIL if the swallowed-error / silent-failure risk is not surfaced in the main report."
+  },
+  "expected_behavior": [
+    "Bugs & Security agent flags the empty/silent catch that swallows the error",
+    "Finding notes failures are hidden on a payment path",
+    "Severity IMPORTANT or CRITICAL",
+    "Verifier keeps the finding"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim the happy path is itself buggy",
+    "Does NOT treat returning null as acceptable error handling here"
+  ]
+}

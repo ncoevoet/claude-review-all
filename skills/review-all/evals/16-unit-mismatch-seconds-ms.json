@@ -1,0 +1,42 @@
+{
+  "id": "16-unit-mismatch-seconds-ms",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A mapper assigns a value the UI collects in seconds directly to a backend field documented in milliseconds, with no x1000 conversion — a silent 1000x scale bug.",
+    "files": {
+      "src/settings/timeout-settings.ts": {
+        "after": "export interface SessionConfig {\n  /** Backend expects the idle timeout in MILLISECONDS. */\n  idleTimeoutMs: number;\n}\n\n// The settings form collects the idle timeout from the user in SECONDS.\nexport function toSessionConfig(idleTimeoutSeconds: number): SessionConfig {\n  return { idleTimeoutMs: idleTimeoutSeconds };\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/settings/timeout-settings.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "must_not_flag": [
+      "the interface declaration itself as a separate issue"
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report's MAIN section (not the appendix) flags that toSessionConfig assigns a value measured in SECONDS (idleTimeoutSeconds) directly to idleTimeoutMs, a field documented in MILLISECONDS, without converting (missing a x1000 multiply) — i.e. a unit/scale mismatch producing a value 1000x too small. Severity IMPORTANT or CRITICAL, with a concrete fix (multiply by 1000). FAIL if that finding is missing, appendix-only, dropped, or if the report only makes unrelated style/typing comments."
+  },
+  "expected_behavior": [
+    "Bugs agent flags the seconds-to-milliseconds unit mismatch (no x1000 conversion)",
+    "Finding severity is IMPORTANT or CRITICAL",
+    "Finding cites src/settings/timeout-settings.ts and suggests multiplying by 1000",
+    "Verifier keeps the finding (score >= 75)"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the SessionConfig interface as a separate issue",
+    "Does NOT invent unrelated CRITICAL findings"
+  ]
+}

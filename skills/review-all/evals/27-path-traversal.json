@@ -1,0 +1,39 @@
+{
+  "id": "27-path-traversal",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A handler joins a user-controlled file name onto a root directory and reads it with no validation, so input like ../../etc/passwd escapes the root (path traversal).",
+    "files": {
+      "src/files/download.ts": {
+        "after": "import { readFileSync } from \"fs\";\nimport { join } from \"path\";\n\nconst ROOT = \"/var/app/userfiles\";\n\n// `name` arrives directly from the HTTP request query string.\nexport function readUserFile(name: string): Buffer {\n  return readFileSync(join(ROOT, name));\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "security",
+        "file": "src/files/download.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that readUserFile joins the user-controlled `name` onto ROOT and reads it without any path-traversal validation, so input such as `../../etc/passwd` escapes ROOT and reads arbitrary files (a path-traversal / directory-traversal vulnerability). It should recommend normalizing and verifying the resolved path stays under ROOT (or rejecting `..`). Severity IMPORTANT or CRITICAL. FAIL if the path-traversal risk is not surfaced."
+  },
+  "expected_behavior": [
+    "Security agent flags unvalidated user-controlled path joined to ROOT",
+    "Cites ../ traversal escaping the root",
+    "Recommends normalize + containment check",
+    "Severity IMPORTANT or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT require a proof-of-concept exploit to flag it",
+    "Does NOT dismiss it because ROOT is a constant"
+  ]
+}

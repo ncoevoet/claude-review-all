@@ -1,0 +1,38 @@
+{
+  "id": "39-integer-precision-loss",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A 64-bit id string from an upstream system is parsed with Number(), losing precision for values above 2^53, so large ids become wrong or collide.",
+    "files": {
+      "src/ids/parse-account-id.ts": {
+        "after": "// `raw` is a 64-bit account id from an upstream API; it can exceed 2^53.\nexport function parseAccountId(raw: string): number {\n  return Number(raw);\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/ids/parse-account-id.ts",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that parseAccountId converts a 64-bit id string to a JavaScript number via Number(), which loses precision above 2^53 (Number.MAX_SAFE_INTEGER) — so large account ids are silently rounded and can become wrong or collide. It should recommend keeping the id as a string (or using BigInt). Severity IMPORTANT or DEBT. FAIL if the precision-loss for large integers is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs agent flags Number() precision loss for 64-bit ids above 2^53",
+    "Recommends string or BigInt",
+    "Severity IMPORTANT or DEBT"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim Number() is always wrong (it is the 64-bit id context that matters)",
+    "Does NOT require a failing example value to flag it"
+  ]
+}

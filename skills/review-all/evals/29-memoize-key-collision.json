@@ -1,0 +1,39 @@
+{
+  "id": "29-memoize-key-collision",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A memoizer keys a single shared cache only by the input value, ignoring which operation produced it. Two different operations called with the same value collide — the second returns the first operation's cached result.",
+    "files": {
+      "src/cache/memoize.ts": {
+        "after": "export type Op<T> = (value: string) => T;\n\nexport class Memoizer {\n  private readonly cache = new Map<string, unknown>();\n\n  run<T>(op: Op<T>, value: string): T {\n    if (this.cache.has(value)) {\n      return this.cache.get(value) as T;\n    }\n    const result = op(value);\n    this.cache.set(value, result);\n    return result;\n  }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/cache/memoize.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that Memoizer.run keys the shared cache ONLY by `value` and ignores which `op` produced it, so calling run(opA, 'x') then run(opB, 'x') returns opA's cached result for opB — a cache-key collision that returns wrong results across different operations. It should recommend including the operation's identity in the key (or a per-operation cache). Severity IMPORTANT or CRITICAL. FAIL if the cross-operation key collision is not surfaced (flagging only generic 'untyped cache' style points does not count)."
+  },
+  "expected_behavior": [
+    "Bugs agent flags the value-only cache key shared across operations",
+    "Notes different ops with the same value return the wrong cached result",
+    "Recommends per-operation keying",
+    "Severity IMPORTANT or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT treat memoization itself as the bug",
+    "Does NOT require unbounded-growth as the angle (the issue is the collision)"
+  ]
+}

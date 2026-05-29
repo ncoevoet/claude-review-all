@@ -1,0 +1,39 @@
+{
+  "id": "17-unguarded-request-body",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A new HTTP handler dereferences the request body without checking it is present. A missing or malformed body throws and surfaces as an uncaught 500 instead of a 400.",
+    "files": {
+      "src/api/notes-handler.ts": {
+        "after": "export interface ApiRequest {\n  body: { text?: string } | null;\n}\n\nexport interface ApiResponse {\n  status(code: number): ApiResponse;\n  json(payload: unknown): void;\n}\n\nexport function handleCreateNote(req: ApiRequest, res: ApiResponse): void {\n  const text = req.body.text.trim();\n  res.json({ id: \"note-1\", text });\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "missing-null-check",
+        "file": "src/api/notes-handler.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report's MAIN section flags that handleCreateNote dereferences the request body without validating it — req.body can be null and req.body.text is optional, so a missing or malformed body throws a TypeError that surfaces as an uncaught 500. Severity IMPORTANT or CRITICAL. Credit, but do NOT require, a recommendation to validate the body and return a client error (400). FAIL if the unguarded-body / crash-on-missing-input risk is not surfaced in the main report, or only style/typing nits appear."
+  },
+  "expected_behavior": [
+    "Bugs & Security agent flags the unvalidated request body (req.body / req.body.text) as a crash / 500 on missing input",
+    "Finding severity is IMPORTANT or CRITICAL",
+    "Ideally recommends validating and returning a 400 client error",
+    "Verifier keeps the finding"
+  ],
+  "expected_not_behavior": [
+    "Does NOT treat this as merely a typing concern to silence",
+    "Does NOT require the body line to be pre-existing to flag it"
+  ]
+}

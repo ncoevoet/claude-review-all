@@ -1,0 +1,38 @@
+{
+  "id": "38-tls-verification-disabled",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "An HTTPS agent disables certificate verification (rejectUnauthorized: false), exposing the connection to man-in-the-middle attacks.",
+    "files": {
+      "src/http/partner-client.ts": {
+        "after": "import { Agent } from \"https\";\n\n// HTTPS agent used for all calls to the partner billing API.\nexport const partnerAgent = new Agent({ rejectUnauthorized: false });\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "security",
+        "file": "src/http/partner-client.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that partnerAgent sets rejectUnauthorized: false, which disables TLS certificate verification and exposes the connection to man-in-the-middle attacks / interception, and recommends leaving verification enabled (or using a proper CA / certificate pinning). Severity IMPORTANT or CRITICAL. FAIL if the disabled-TLS-verification risk is not surfaced."
+  },
+  "expected_behavior": [
+    "Security agent flags rejectUnauthorized:false as disabling TLS verification (MITM)",
+    "Recommends keeping verification on",
+    "Severity IMPORTANT or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT accept it as a reasonable default for a 'partner' API",
+    "Does NOT downgrade it to a style nit"
+  ]
+}

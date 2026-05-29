@@ -21,8 +21,34 @@ A labeled scenario suite that probes whether the orchestrator catches what it sh
 | `13-race-lost-update` | concurrency | A non-atomic read-modify-write across an `await` (lost update). |
 | `14-resource-leak` | resource leak | A file handle not closed on the error path. |
 | `15-deleted-file-breaks-importer` | deletion handling | A deleted module still imported by an unchanged consumer. |
+| `16-unit-mismatch-seconds-ms` | correctness | A value collected in seconds assigned to a milliseconds field with no ×1000 — a silent 1000× scale bug. |
+| `17-unguarded-request-body` | bugs / validation | A handler dereferences the request body without checking it is present → crash/500 on missing input (better: 400). |
+| `18-swallowed-exception` | error handling | A catch on a payment path swallows the error (no log, no rethrow) and returns null — silent failure. |
+| `19-generated-file-noise-floor` | precision | A regenerated `DO NOT EDIT` file must NOT be nitpicked for DRY / `any` / style. |
+| `20-cache-invalidation-storm` | performance | A full `flushAll()` inside a per-item loop → O(n) cache-invalidation storm. |
+| `21-subscription-leak` | resource leak | A method resubscribes on every call without unsubscribing → accumulating live subscriptions. |
+| `22-cache-on-failure` | resilience | A pending-promise cache never evicts a rejected fetch → the failure is cached permanently. |
+| `23-missing-await-floating-promise` | async | An un-awaited promise (floating) → unhandled rejection + unordered side effect. |
+| `24-off-by-one-pagination` | logic | A 1-based page with `start = page * pageSize` skips the first page. |
+| `25-inverted-access-guard` | security | `!roles.includes(required)` inverts the access decision (authorization bypass). |
+| `26-uninitialized-field` | bugs | A field behind a `!` definite-assignment assertion is never initialized → runtime TypeError. |
+| `27-path-traversal` | security | A user-controlled file name joined to ROOT without validation → `../` traversal. |
+| `28-secret-in-log` | security | A plaintext password written into a log line. |
+| `29-memoize-key-collision` | correctness | A shared memo cache keyed only by input value collides across different operations → wrong cached result. |
+| `30-switch-missing-case` | completeness | A switch over a string-literal union omits a member with no default → implicit `undefined` return. |
+| `31-xss-innerhtml` | security | User text interpolated into `innerHTML` with no escaping → XSS. |
+| `32-open-redirect` | security | A redirect to a user-controlled URL with no allowlist/same-origin check. |
+| `33-unbounded-cache-growth` | resource leak | A long-lived cache keyed by unbounded user input with no cap/eviction/TTL → memory growth. |
+| `34-command-injection` | security | User input interpolated into a shell command passed to `execSync`. |
+| `35-regex-redos` | security / perf | A nested-quantifier regex on user input → catastrophic backtracking (ReDoS). |
+| `36-insecure-randomness` | security | A session token generated with `Math.random()` (non-cryptographic PRNG). |
+| `37-ssrf` | security | A server-side request to a user-controlled URL with no validation (SSRF). |
+| `38-tls-verification-disabled` | security | An HTTPS agent with `rejectUnauthorized: false` (MITM exposure). |
+| `39-integer-precision-loss` | correctness | A 64-bit id string parsed with `Number()` → precision loss above 2^53. |
+| `40-missing-query-limit` | performance | An unbounded `SELECT` with no `LIMIT`/pagination → loads a growing table. |
+| `41-async-foreach` | async | `Array.forEach` with an async callback → per-item promises not awaited. |
 
-15 cases as of this writing — all passing in headless cycles. Per the develop-tests guidance, keep growing toward ~20 (remaining ideas: generated files, sarcastic/ambiguous comments, huge multi-thousand-line diffs, mixed-language repos). Claude can generate additional cases from this baseline set.
+41 cases as of this writing. Cases 16–41 were grown from real-world bug-fix patterns (anonymized — no provenance in the fixtures). Per the develop-tests guidance, keep growing (remaining ideas: sarcastic/ambiguous comments that should not become findings, huge multi-thousand-line diffs, mixed-language repos). Claude can generate additional cases from this baseline set.
 
 ## Schema
 

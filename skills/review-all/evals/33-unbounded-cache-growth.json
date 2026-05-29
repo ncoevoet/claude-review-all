@@ -1,0 +1,39 @@
+{
+  "id": "33-unbounded-cache-growth",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A long-lived cache keyed by unbounded user input grows forever — no size cap, eviction, or TTL — so successful entries accumulate and leak memory over time.",
+    "files": {
+      "src/cache/lookup-cache.ts": {
+        "after": "export class LookupCache {\n  private readonly entries = new Map<string, string>();\n\n  constructor(private readonly fetcher: (key: string) => string) {}\n\n  // `key` is derived from user input and effectively unbounded in cardinality.\n  get(key: string): string {\n    let value = this.entries.get(key);\n    if (value === undefined) {\n      value = this.fetcher(key);\n      this.entries.set(key, value);\n    }\n    return value;\n  }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "resource-leak",
+        "file": "src/cache/lookup-cache.ts",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that LookupCache.entries grows without bound — there is no size cap, eviction policy, or TTL — while keys come from effectively unbounded user input, so the cache leaks memory in a long-lived process. It should recommend a bounded/LRU cache or TTL eviction. Severity IMPORTANT or DEBT. FAIL if the unbounded-growth / memory-leak risk is not surfaced. (The successful-entry retention is the issue, distinct from caching a failed result.)"
+  },
+  "expected_behavior": [
+    "Performance / resource agent flags the unbounded Map cache",
+    "Notes unbounded user-derived keys cause memory growth",
+    "Recommends bounded/LRU/TTL eviction",
+    "Severity IMPORTANT or DEBT"
+  ],
+  "expected_not_behavior": [
+    "Does NOT treat caching itself as the bug",
+    "Does NOT confuse this with cache-on-failure (entries here are successful results)"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "id": "21-subscription-leak",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A method subscribes to an observable every time it is called and never unsubscribes the previous subscription. Repeated calls accumulate live subscriptions — a memory leak plus duplicate handlers.",
+    "files": {
+      "src/widgets/panel-widget.ts": {
+        "after": "export interface Subscription {\n  unsubscribe(): void;\n}\n\nexport interface Observable<T> {\n  subscribe(handler: (value: T) => void): Subscription;\n}\n\nexport class PanelWidget {\n  constructor(private readonly changes$: Observable<string>) {}\n\n  // Invoked every time the panel list changes.\n  subscribeToChanges(): void {\n    this.changes$.subscribe((name) => this.render(name));\n  }\n\n  private render(name: string): void {\n    void name;\n  }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "resource-leak",
+        "file": "src/widgets/panel-widget.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that subscribeToChanges() subscribes to changes$ on every call and never unsubscribes the previous Subscription, so repeated calls accumulate live subscriptions (a subscription/memory leak and duplicate handlers), recommending storing and unsubscribing the prior subscription (or a takeUntil/teardown). Severity IMPORTANT or CRITICAL. FAIL if the leak from repeated subscription is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs / resource agent flags the unmanaged subscription that accumulates on repeated calls",
+    "Recommends unsubscribing the previous subscription or a teardown mechanism",
+    "Severity IMPORTANT or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim a single subscribe call is itself wrong",
+    "Does NOT flag the render() stub as a separate issue"
+  ]
+}

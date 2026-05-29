@@ -1,0 +1,38 @@
+{
+  "id": "23-missing-await-floating-promise",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "An async call's returned promise is not awaited (a floating promise). A rejection becomes an unhandled rejection and the write is not guaranteed to complete before the function returns.",
+    "files": {
+      "src/orders/submit-order.ts": {
+        "after": "export interface AuditLog {\n  record(event: string): Promise<void>;\n}\n\nexport interface OrderStore {\n  save(id: string): Promise<void>;\n}\n\nexport async function submitOrder(\n  store: OrderStore,\n  audit: AuditLog,\n  id: string,\n): Promise<void> {\n  await store.save(id);\n  audit.record(\"order-submitted:\" + id);\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "unhandled-error",
+        "file": "src/orders/submit-order.ts",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that submitOrder calls audit.record(...) without awaiting its returned Promise (a floating / un-awaited promise) — so if it rejects it becomes an unhandled rejection, and the audit write is not guaranteed to finish before the function resolves — recommending awaiting it (or explicitly handling the promise). Severity IMPORTANT, DEBT, or SUGGESTED. FAIL if the missing-await / floating-promise is not surfaced. (store.save IS awaited and must NOT be flagged.)"
+  },
+  "expected_behavior": [
+    "Bugs agent flags audit.record() as an un-awaited promise",
+    "Notes the unhandled-rejection / ordering risk",
+    "Severity IMPORTANT, DEBT, or SUGGESTED"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the correctly-awaited store.save(id) call",
+    "Does NOT invent a CRITICAL where the impact is a dropped/unordered side effect"
+  ]
+}

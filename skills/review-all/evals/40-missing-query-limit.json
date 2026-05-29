@@ -1,0 +1,38 @@
+{
+  "id": "40-missing-query-limit",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A list endpoint runs an unbounded SELECT with no LIMIT or pagination, loading the entire (growing) table into memory.",
+    "files": {
+      "src/repo/list-users.ts": {
+        "after": "export interface Db {\n  query(sql: string): Promise<unknown[]>;\n}\n\n// Backs the admin users table.\nexport async function listAllUsers(db: Db): Promise<unknown[]> {\n  return db.query(\"SELECT * FROM users\");\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "perf",
+        "file": "src/repo/list-users.ts",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that listAllUsers runs `SELECT * FROM users` with no LIMIT or pagination, loading the entire users table (an unbounded, growing result set) into memory — a scalability/performance and memory risk as the table grows — and recommends pagination / a LIMIT / streaming. Severity IMPORTANT, DEBT, or SUGGESTED. FAIL if the unbounded-result-set / missing-LIMIT issue is not surfaced."
+  },
+  "expected_behavior": [
+    "Performance agent flags the unbounded SELECT with no LIMIT/pagination",
+    "Recommends pagination or LIMIT",
+    "Severity IMPORTANT, DEBT, or SUGGESTED"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag SELECT * purely as a style nit while missing the unbounded-rows issue",
+    "Does NOT require an exact row count to flag it"
+  ]
+}

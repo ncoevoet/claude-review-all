@@ -1,0 +1,39 @@
+{
+  "id": "41-async-foreach",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Array.forEach is called with an async callback, so the per-item promises are not awaited: the function resolves before the handlers finish and any rejection is unhandled.",
+    "files": {
+      "src/batch/process-all.ts": {
+        "after": "export interface Item {\n  id: string;\n}\n\nexport async function processAll(\n  items: Item[],\n  handle: (item: Item) => Promise<void>,\n): Promise<void> {\n  items.forEach(async (item) => {\n    await handle(item);\n  });\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "unhandled-error",
+        "file": "src/batch/process-all.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that processAll uses items.forEach with an async callback, so the per-item promises are NOT awaited — processAll resolves before any handle() completes, item failures become unhandled rejections, and errors are not propagated to the caller. It should recommend `for (const item of items) await handle(item)` or `await Promise.all(items.map(handle))`. Severity IMPORTANT or DEBT. FAIL if the unawaited-forEach / fire-and-forget batch issue is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs agent flags async callback passed to Array.forEach (promises not awaited)",
+    "Notes processAll resolves early and rejections are unhandled",
+    "Recommends for...of + await or Promise.all(map)",
+    "Severity IMPORTANT or DEBT"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim handle() itself is wrong",
+    "Does NOT confuse this with a single missing await on one call"
+  ]
+}

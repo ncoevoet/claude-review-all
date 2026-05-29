@@ -1,0 +1,38 @@
+{
+  "id": "36-insecure-randomness",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A security-sensitive session token is generated with Math.random(), a non-cryptographic PRNG, making tokens predictable.",
+    "files": {
+      "src/auth/token.ts": {
+        "after": "// Generates a session token used to authenticate the user's session.\nexport function newSessionToken(): string {\n  return Math.random().toString(36).slice(2);\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "security",
+        "file": "src/auth/token.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that newSessionToken uses Math.random() — a non-cryptographic PRNG — to generate a security-sensitive session token, making tokens predictable/guessable, and recommends a cryptographically secure source (e.g. crypto.randomBytes, crypto.randomUUID, getRandomValues). Severity IMPORTANT or CRITICAL. FAIL if the insecure-randomness risk is not surfaced."
+  },
+  "expected_behavior": [
+    "Security agent flags Math.random() for a security token",
+    "Recommends a CSPRNG",
+    "Severity IMPORTANT or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT treat Math.random() as fine because it 'looks random'",
+    "Does NOT require an exploit to flag it"
+  ]
+}

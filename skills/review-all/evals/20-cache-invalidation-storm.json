@@ -1,0 +1,38 @@
+{
+  "id": "20-cache-invalidation-storm",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A bulk operation flushes the entire cache on every iteration of the loop. On large inputs this is an O(n) full-cache-invalidation storm; the flush should happen once after the loop.",
+    "files": {
+      "src/admin/bulk-update.ts": {
+        "after": "export interface Store {\n  update(id: string, value: string): Promise<void>;\n}\n\nexport interface Cache {\n  flushAll(): Promise<void>;\n}\n\nexport async function bulkUpdate(\n  store: Store,\n  cache: Cache,\n  items: Array<{ id: string; value: string }>,\n): Promise<void> {\n  for (const item of items) {\n    await store.update(item.id, item.value);\n    await cache.flushAll();\n  }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "perf",
+        "file": "src/admin/bulk-update.ts",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that bulkUpdate calls cache.flushAll() (a full cache invalidation) inside the per-item loop, so the whole cache is flushed N times for N items — a cache-invalidation storm / write amplification on large inputs — and recommends flushing once after the loop instead. Severity IMPORTANT, DEBT, or SUGGESTED. FAIL if the per-iteration full-flush performance problem is not surfaced. Do NOT require the words 'N+1'."
+  },
+  "expected_behavior": [
+    "Performance agent flags the full cache flush inside the loop as O(n) invalidation",
+    "Recommends moving flushAll() to after the loop",
+    "Severity IMPORTANT / DEBT / SUGGESTED"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim a single flushAll() call is itself wrong",
+    "Does NOT require the loop body to perform a database read to flag it"
+  ]
+}

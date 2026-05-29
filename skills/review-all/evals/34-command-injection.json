@@ -1,0 +1,38 @@
+{
+  "id": "34-command-injection",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A user-controlled value is interpolated into a shell command string passed to execSync — a command-injection sink.",
+    "files": {
+      "src/ops/backup.ts": {
+        "after": "import { execSync } from \"child_process\";\n\n// `name` arrives from an HTTP request.\nexport function backupDatabase(name: string): void {\n  execSync(`pg_dump ${name} > /backups/${name}.sql`);\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "injection",
+        "file": "src/ops/backup.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that backupDatabase interpolates the user-controlled `name` into a shell command passed to execSync, enabling command injection (e.g. a `name` containing `;`, `$(...)`, or backticks runs arbitrary commands). It should recommend execFile/spawn with an argument array, or strict validation/escaping. Severity IMPORTANT or CRITICAL. FAIL if the command-injection risk is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs & Security agent flags the shell interpolation of user input as command injection",
+    "Recommends execFile/spawn with args or validation",
+    "Severity IMPORTANT or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT treat the redirection (> file) as the main issue",
+    "Does NOT require a working exploit string to flag it"
+  ]
+}

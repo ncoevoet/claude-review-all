@@ -1,0 +1,38 @@
+{
+  "id": "32-open-redirect",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A post-login handler redirects to a URL taken straight from the request with no validation — an open redirect usable for phishing.",
+    "files": {
+      "src/auth/post-login.ts": {
+        "after": "export interface Res {\n  redirect(url: string): void;\n}\n\n// `next` comes directly from the request query string.\nexport function postLogin(res: Res, next: string): void {\n  res.redirect(next);\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "security",
+        "file": "src/auth/post-login.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that postLogin redirects to the user-controlled `next` value without validating it (e.g. allowlist, same-origin check, or relative-path-only), enabling an open redirect that can be abused for phishing/credential theft. It should recommend validating the target. Severity IMPORTANT or CRITICAL. FAIL if the open-redirect risk is not surfaced."
+  },
+  "expected_behavior": [
+    "Security agent flags the unvalidated redirect target as an open redirect",
+    "Recommends allowlisting / same-origin / relative-only validation",
+    "Severity IMPORTANT or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT require an external consumer to confirm exploitability",
+    "Does NOT treat redirect() as inherently safe"
+  ]
+}

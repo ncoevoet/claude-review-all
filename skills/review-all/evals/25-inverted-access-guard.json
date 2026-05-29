@@ -1,0 +1,38 @@
+{
+  "id": "25-inverted-access-guard",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "An access-control predicate returns the negation of the role membership check, inverting the decision: it grants access to users who LACK the required role and denies those who have it.",
+    "files": {
+      "src/auth/access.ts": {
+        "after": "export interface User {\n  roles: string[];\n}\n\n// Returns true if `user` is allowed to access a resource requiring `required`.\nexport function canAccess(user: User, required: string): boolean {\n  return !user.roles.includes(required);\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "security",
+        "file": "src/auth/access.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that canAccess returns the NEGATION of the role check (`!user.roles.includes(required)`), inverting the intended decision documented in the comment — it grants access to users who do NOT have the required role and denies those who do (an authorization bypass / inverted condition). It should recommend removing the `!`. Severity IMPORTANT or CRITICAL. FAIL if the inverted access logic is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs & Security agent flags the inverted boolean (authorization bypass)",
+    "Recommends returning user.roles.includes(required)",
+    "Severity IMPORTANT or CRITICAL (security-relevant)"
+  ],
+  "expected_not_behavior": [
+    "Does NOT treat this as a stylistic preference",
+    "Does NOT require external call sites to confirm the inversion"
+  ]
+}

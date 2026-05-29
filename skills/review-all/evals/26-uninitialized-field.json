@@ -1,0 +1,39 @@
+{
+  "id": "26-uninitialized-field",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A class field declared with a definite-assignment assertion is never initialized (no constructor or initializer assigns it), so the first method that uses it throws a TypeError at runtime. The `!` suppresses the compiler, so static typecheck does not catch it.",
+    "files": {
+      "src/views/playlist-view.ts": {
+        "after": "export class PlaylistView {\n  private items!: string[];\n\n  addItem(name: string): void {\n    this.items.push(name);\n  }\n\n  count(): number {\n    return this.items.length;\n  }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "missing-null-check",
+        "file": "src/views/playlist-view.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "max_critical": null
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that PlaylistView.items is declared with a definite-assignment assertion (`items!: string[]`) but is never assigned (no constructor or field initializer), so addItem's `this.items.push(...)` (and count()) throw a TypeError ('Cannot read properties of undefined') at runtime — and notes that the `!` is what hides this from the compiler. It should recommend initializing the field (e.g. `= []`). Severity IMPORTANT or CRITICAL. FAIL if the uninitialized-field runtime crash is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs agent flags the never-initialized field behind a definite-assignment assertion",
+    "Notes the runtime TypeError on first use",
+    "Recommends initializing items to []",
+    "Severity IMPORTANT or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT assume some unseen constructor initializes it (no constructor exists in the file)",
+    "Does NOT treat this as a pure typing-style nit"
+  ]
+}
