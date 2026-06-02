@@ -1,0 +1,35 @@
+{
+  "id": "43-jdbc-resource-leak",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A JDBC Connection/PreparedStatement/ResultSet are opened but never closed (no try-with-resources / finally) -> they leak back to the pool on early return or exception.",
+    "files": {
+      "src/net/JdbcUserDao.java": {
+        "after": "import java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport javax.sql.DataSource;\n\npublic class JdbcUserDao {\n\n    private final DataSource dataSource;\n\n    public JdbcUserDao(DataSource dataSource) {\n        this.dataSource = dataSource;\n    }\n\n    public String findEmail(long userId) throws Exception {\n        Connection conn = dataSource.getConnection();\n        PreparedStatement ps = conn.prepareStatement(\"SELECT email FROM app_user WHERE id = ?\");\n        ps.setLong(1, userId);\n        ResultSet rs = ps.executeQuery();\n        if (rs.next()) {\n            return rs.getString(\"email\");\n        }\n        return null;\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "resource-leak",
+        "file": "src/net/JdbcUserDao.java",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that findEmail opens a Connection, PreparedStatement, and ResultSet that are never closed (no try-with-resources or finally), leaking them on the early `return` and on any exception -> connection-pool exhaustion, and recommends try-with-resources (or closing in finally). Severity IMPORTANT or CRITICAL. FAIL if the resource/connection leak is not surfaced."
+  },
+  "expected_behavior": [
+    "Performance/Bugs agent flags the unclosed JDBC resources",
+    "Recommends try-with-resources"
+  ],
+  "expected_not_behavior": [
+    "Does NOT only comment on SQL style"
+  ]
+}

@@ -47,8 +47,22 @@ A labeled scenario suite that probes whether the orchestrator catches what it sh
 | `39-integer-precision-loss` | correctness | A 64-bit id string parsed with `Number()` → precision loss above 2^53. |
 | `40-missing-query-limit` | performance | An unbounded `SELECT` with no `LIMIT`/pagination → loads a growing table. |
 | `41-async-foreach` | async | `Array.forEach` with an async callback → per-item promises not awaited. |
+| `42-concurrent-modification` | concurrency | Removing from a `List` inside an enhanced-for loop → `ConcurrentModificationException`. |
+| `43-jdbc-resource-leak` | resource leak | A JDBC `Connection`/`Statement`/`ResultSet` opened without try-with-resources → leaked on early return / exception. |
+| `44-blank-secret-auth-bypass` | security | A shared secret defaulting to `""` accepts an empty secret header → trust bypass. |
+| `45-non-thread-safe-map` | concurrency | A plain `HashMap` mutated concurrently from pool threads with no synchronization → data race. |
+| `46-broken-double-checked-locking` | concurrency | Double-checked locking on a non-`volatile` field → unsafe publication / visibility race. |
+| `47-io-under-lock` | performance | A blocking remote call inside a `synchronized` block → serializes every caller behind one round-trip. |
+| `48-swallowed-interrupt` | error handling | An empty `catch (InterruptedException)` that neither restores the interrupt flag nor exits → lost cancellation. |
+| `49-locale-dependent-case` | i18n correctness | `toLowerCase()` with no `Locale` used as a map key → Turkish-i style mismatch (distinct from hardcoded-string i18n). |
+| `50-negative-count-underflow` | logic | A decrement with no zero floor → a negative, invalid count reported to callers. |
+| `51-exception-as-control-flow` | performance | `NoSuchMethodException` thrown/caught per hierarchy step in a hot loop (stack-fill cost). |
+| `52-non-atomic-id-collision` | concurrency | `currentTimeMillis()` + `Math.random()` ID collides within a millisecond → duplicate primary key. |
+| `53-db-column-truncation` | data loss | An unbounded value written to a `VARCHAR(64)` column (declared in an unchanged migration) with no length check. |
+| `54-mutable-internal-exposure` | encapsulation | A getter returns the internal mutable `List` directly → callers mutate private state. |
+| `55-thread-confined-no-race` | precision / noise floor | Correctly thread-safe code (`ConcurrentHashMap` + `AtomicLong`) must NOT be flagged as a race. |
 
-41 cases as of this writing. Cases 16–41 were grown from real-world bug-fix patterns (anonymized — no provenance in the fixtures). Per the develop-tests guidance, keep growing (remaining ideas: sarcastic/ambiguous comments that should not become findings, huge multi-thousand-line diffs, mixed-language repos). Claude can generate additional cases from this baseline set.
+55 cases as of this writing. Cases 16–41 were grown from real-world bug-fix patterns; cases 42–55 add a Java concurrency / resource / security flavor (plus a thread-safety precision counter-case, `55`) the otherwise TS/JS-heavy suite lacked — all anonymized, no provenance in the fixtures. Per the develop-tests guidance, keep growing (remaining ideas: sarcastic/ambiguous comments that should not become findings, huge multi-thousand-line diffs, mixed-language repos). Claude can generate additional cases from this baseline set.
 
 ## Schema
 

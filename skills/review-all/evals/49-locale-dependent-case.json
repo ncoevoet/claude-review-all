@@ -1,0 +1,35 @@
+{
+  "id": "49-locale-dependent-case",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "toLowerCase() is called without a Locale on a value used as a map key; under a locale such as Turkish this maps ASCII letters differently and breaks the lookup.",
+    "files": {
+      "src/i18n/CountryRouter.java": {
+        "after": "import java.util.Map;\n\npublic class CountryRouter {\n\n    public interface Handler {\n        void handle(String payload);\n    }\n\n    private final Map<String, Handler> handlers;\n\n    public CountryRouter(Map<String, Handler> handlers) {\n        this.handlers = handlers;\n    }\n\n    public Handler route(String countryCode) {\n        return handlers.get(countryCode.toLowerCase());\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "i18n",
+        "file": "src/i18n/CountryRouter.java",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that countryCode.toLowerCase() is called WITHOUT an explicit Locale before being used as a map key, so under a locale such as Turkish (the dotless-i / dotted-I case mapping) the lookup can produce the wrong key and route incorrectly, and recommends toLowerCase(Locale.ROOT) (or Locale.ENGLISH). Severity DEBT, IMPORTANT, or SUGGESTED. FAIL if the locale-dependent case-conversion bug is not surfaced."
+  },
+  "expected_behavior": [
+    "A11y/i18n or Bugs agent flags locale-dependent toLowerCase used as a key",
+    "Recommends Locale.ROOT"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag it as a hardcoded user-facing string (different issue)"
+  ]
+}

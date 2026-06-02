@@ -17,6 +17,8 @@ Apply the shared severity tiers, 3-question gate, quotas, and auto-drop rules fr
 - **Big-O regressions**: nested loops over same large collection that could be a hash join; `.includes()` inside loop on large list (use a Set)
 - **Repeated work**: same expensive call inside loop or render that should be hoisted/memoized
 - **Sync I/O on hot path**: blocking file/network calls in request handlers, render functions, or signal effects
+- **Blocking call while holding a lock**: remote/IO/`sleep` inside a `synchronized`/`Lock` block serializes every caller behind one round-trip → contention, thread starvation. Hoist the call out of the critical section (cache or pre-fetch the value).
+- **Exception as control flow in a hot loop**: throwing+catching (e.g. `NoSuchMethodException`, parse failures) on each iteration as normal flow → repeated stack-fill/allocation cost. Use a non-throwing check, or cache hits *and* misses.
 
 ## Framework-specific (auto-detect from Project Profile)
 

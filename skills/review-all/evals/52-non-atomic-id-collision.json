@@ -1,0 +1,35 @@
+{
+  "id": "52-non-atomic-id-collision",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "IDs are built from currentTimeMillis() plus a Math.random() suffix; two IDs generated in the same millisecond can collide, producing duplicate primary keys.",
+    "files": {
+      "src/history/HistoryIdGenerator.java": {
+        "after": "public class HistoryIdGenerator {\n\n    public String nextId() {\n        long millis = System.currentTimeMillis();\n        long suffix = Math.round(Math.random() * 99999);\n        return Long.toString(millis) + suffix;\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "race-condition",
+        "file": "src/history/HistoryIdGenerator.java",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that nextId() can produce colliding identifiers when called concurrently / multiple times in the same millisecond (timestamp + a bounded Math.random() suffix is not collision-free) -> duplicate primary-key / lost rows, and recommends a guaranteed-unique scheme (AtomicLong sequence, UUID, or DB sequence). Severity IMPORTANT or CRITICAL. FAIL if the collision/uniqueness risk is not surfaced. Do NOT require the fix to be about cryptographic randomness; uniqueness, not unpredictability, is the issue."
+  },
+  "expected_behavior": [
+    "Bugs agent flags the collision-prone ID generation",
+    "Recommends AtomicLong/UUID"
+  ],
+  "expected_not_behavior": [
+    "Does NOT frame it only as a weak-RNG security issue"
+  ]
+}

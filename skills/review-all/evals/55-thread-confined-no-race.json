@@ -1,0 +1,34 @@
+{
+  "id": "55-thread-confined-no-race",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Correctly thread-safe shared state (ConcurrentHashMap + AtomicLong + computeIfAbsent + incrementAndGet). Precision case: the agents must NOT invent a race condition here.",
+    "files": {
+      "src/metrics/RequestCounter.java": {
+        "after": "import java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.atomic.AtomicLong;\n\npublic class RequestCounter {\n\n    private final Map<String, AtomicLong> counts = new ConcurrentHashMap<>();\n\n    public void increment(String route) {\n        counts.computeIfAbsent(route, key -> new AtomicLong()).incrementAndGet();\n    }\n\n    public long count(String route) {\n        AtomicLong value = counts.get(route);\n        return value == null ? 0L : value.get();\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "race-condition",
+        "file": "src/metrics/RequestCounter.java"
+      }
+    ],
+    "max_critical": 0
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "This file is CORRECT, idiomatic thread-safe code: a ConcurrentHashMap holding AtomicLong values, with computeIfAbsent + incrementAndGet for the increment. PASS if the report does NOT claim any concurrency/race/thread-safety/lost-update defect in RequestCounter. A SUGGESTED or QUESTION note that is not a concurrency-correctness claim is acceptable. FAIL if the report flags a data race, non-thread-safe access, lost update, missing synchronization/volatile, or similar concurrency bug in this file (it would be a false positive)."
+  },
+  "expected_behavior": [
+    "No concurrency finding is reported (the code is correctly synchronized)"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag a race condition / non-thread-safe access",
+    "Does NOT recommend adding synchronization that already exists"
+  ]
+}

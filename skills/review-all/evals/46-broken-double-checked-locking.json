@@ -1,0 +1,35 @@
+{
+  "id": "46-broken-double-checked-locking",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Double-checked locking on a non-volatile field: another thread can observe a non-null but not-yet-fully-constructed Settings (unsafe publication).",
+    "files": {
+      "src/config/SettingsHolder.java": {
+        "after": "public class SettingsHolder {\n\n    private Settings settings;\n\n    public Settings get() {\n        if (settings == null) {\n            synchronized (this) {\n                if (settings == null) {\n                    settings = load();\n                }\n            }\n        }\n        return settings;\n    }\n\n    private Settings load() {\n        return new Settings();\n    }\n\n    public static final class Settings {\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "race-condition",
+        "file": "src/config/SettingsHolder.java",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that the double-checked-locking in get() reads/writes the `settings` field which is NOT declared volatile, so a thread can see a non-null but partially-constructed object (unsafe publication / memory-visibility race), and recommends making the field volatile (or using a holder class / AtomicReference / memoizing supplier). Severity IMPORTANT or CRITICAL. FAIL if the missing-volatile / broken-DCL issue is not surfaced or it is only treated as style."
+  },
+  "expected_behavior": [
+    "Bugs agent flags non-volatile double-checked locking",
+    "Recommends volatile or holder idiom"
+  ],
+  "expected_not_behavior": [
+    "Does NOT accept the manual DCL as correct"
+  ]
+}

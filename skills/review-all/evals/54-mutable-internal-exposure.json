@@ -1,0 +1,35 @@
+{
+  "id": "54-mutable-internal-exposure",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "getItems() returns the internal mutable List directly, so callers can mutate the cart's private state (clear/add) bypassing the class invariants.",
+    "files": {
+      "src/model/ShoppingCart.java": {
+        "after": "import java.util.ArrayList;\nimport java.util.List;\n\npublic class ShoppingCart {\n\n    private final List<String> items = new ArrayList<>();\n\n    public void add(String item) {\n        items.add(item);\n    }\n\n    public List<String> getItems() {\n        return items;\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "mutable-exposure",
+        "file": "src/model/ShoppingCart.java",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that getItems() returns the internal mutable `items` list reference directly (no defensive copy / unmodifiable wrapper), so external callers can mutate the cart's private state (e.g. getItems().clear()) and break encapsulation/invariants, and recommends returning a copy or Collections.unmodifiableList(...). Severity DEBT, IMPORTANT, or SUGGESTED. FAIL if the leaked-internal-collection / encapsulation issue is not surfaced."
+  },
+  "expected_behavior": [
+    "DRY/Bugs agent flags the exposed internal collection",
+    "Recommends defensive copy or unmodifiable view"
+  ],
+  "expected_not_behavior": [
+    "Does NOT require a caller to be shown mutating it"
+  ]
+}

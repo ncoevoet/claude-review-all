@@ -1,0 +1,35 @@
+{
+  "id": "51-exception-as-control-flow",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "On a hot dispatch path, resolve() throws and catches NoSuchMethodException on every superclass step for every event -> exceptions used as normal control flow, paying repeated stack-fill cost.",
+    "files": {
+      "src/events/EventDispatcher.java": {
+        "after": "import java.lang.reflect.Method;\n\npublic class EventDispatcher {\n\n    private final Object handler;\n\n    public EventDispatcher(Object handler) {\n        this.handler = handler;\n    }\n\n    // Hot path: invoked once per inbound event, thousands of times per second.\n    public void dispatch(String eventName, Object payload) {\n        Method method = resolve(handler.getClass(), eventName);\n        if (method == null) {\n            return;\n        }\n        try {\n            method.invoke(handler, payload);\n        } catch (ReflectiveOperationException ex) {\n            throw new IllegalStateException(\"dispatch failed: \" + eventName, ex);\n        }\n    }\n\n    private Method resolve(Class<?> type, String name) {\n        for (Class<?> c = type; c != null; c = c.getSuperclass()) {\n            try {\n                return c.getDeclaredMethod(name, Object.class);\n            } catch (NoSuchMethodException ex) {\n                // intentional: not declared on this class, climb to the superclass\n            }\n        }\n        return null;\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "perf",
+        "file": "src/events/EventDispatcher.java",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report identifies that resolve() throws and catches NoSuchMethodException on each class of the hierarchy as ordinary control flow, executed for every dispatch on the hot path (dispatch is documented as called thousands of times/second), so the hot path repeatedly pays exception-construction / stack-fill cost — and recommends a non-throwing lookup (e.g. iterate getDeclaredMethods() and match, or getMethod with a guard) or caching resolved methods including misses. Severity DEBT, SUGGESTED, or IMPORTANT. The finding may come from the performance agent. FAIL if the per-call-exception performance cost is not surfaced (e.g. the report only flags correctness or the empty catch body, but never the exception-as-control-flow cost on the hot path)."
+  },
+  "expected_behavior": [
+    "Performance agent flags exceptions thrown/caught as control flow on a hot dispatch path",
+    "Recommends a non-throwing lookup or caching hits and misses"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the documented catch as an error-handling bug (it is intentional control flow here)"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "id": "48-swallowed-interrupt",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A catch (InterruptedException) block is empty: it neither restores the interrupt status nor exits the loop, so the worker thread cannot be cancelled/shut down.",
+    "files": {
+      "src/jobs/PollingWorker.java": {
+        "after": "public class PollingWorker {\n\n    private final long intervalMs;\n\n    public PollingWorker(long intervalMs) {\n        this.intervalMs = intervalMs;\n    }\n\n    public void runLoop() {\n        while (true) {\n            try {\n                Thread.sleep(intervalMs);\n                poll();\n            } catch (InterruptedException ex) {\n            }\n        }\n    }\n\n    private void poll() {\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "unhandled-error",
+        "file": "src/jobs/PollingWorker.java",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that the caught InterruptedException is swallowed (empty catch) without restoring the interrupt status via Thread.currentThread().interrupt() and without breaking the loop, so the thread ignores interruption / cannot be cancelled or shut down (effectively an uninterruptible loop), and recommends restoring the interrupt flag and exiting the loop. Severity IMPORTANT or CRITICAL. FAIL if the swallowed-interrupt / lost-cancellation problem is not surfaced. A generic 'empty catch' note that misses the interrupt semantics still PASSES only if it identifies that interruption/cancellation is lost."
+  },
+  "expected_behavior": [
+    "Bugs agent flags the swallowed InterruptedException and lost cancellation",
+    "Recommends restoring interrupt status + breaking"
+  ],
+  "expected_not_behavior": [
+    "Does NOT treat the empty catch as acceptable"
+  ]
+}

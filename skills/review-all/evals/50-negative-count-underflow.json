@@ -1,0 +1,35 @@
+{
+  "id": "50-negative-count-underflow",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "onDequeue decrements a counter with no floor; a duplicate or late dequeue event drives the gauge negative and a negative count is reported to callers.",
+    "files": {
+      "src/queue/QueueGauge.java": {
+        "after": "public class QueueGauge {\n\n    private int waiting;\n\n    public void onEnqueue() {\n        waiting++;\n    }\n\n    public void onDequeue() {\n        waiting--;\n    }\n\n    public int waiting() {\n        return waiting;\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "logic",
+        "file": "src/queue/QueueGauge.java",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that onDequeue decrements `waiting` with no lower-bound guard, so the gauge can go negative (e.g. a duplicate/late dequeue, or more dequeues than enqueues after a restart) and waiting() returns a negative, invalid count to callers, and recommends clamping at zero (Math.max(0, ...)) or guarding the decrement. Severity IMPORTANT, DEBT, or SUGGESTED. FAIL if the possibility of a negative/invalid count is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs agent flags the unguarded decrement that yields a negative count",
+    "Recommends a zero floor / guard"
+  ],
+  "expected_not_behavior": [
+    "A note about int++/-- non-atomicity is fine but the negative-count risk must be the surfaced issue"
+  ]
+}

@@ -50,6 +50,7 @@ For each entry point, form attack hypotheses:
 - **Mass assignment**: handler accept fields user shouldn't set?
 - **Rate limit bypass**: more efficient code path attacker can hit?
 - **Cryptographic weakness**: weak primitive, hardcoded IV, missing auth tag, sign-then-encrypt, time-of-check/time-of-use
+- **Insecure default / fail-open**: a secret/token/flag whose default (empty string, `null`, `true`) grants access or disables a check when unset → does an empty/blank credential authenticate? does missing config fail open instead of closed?
 
 ## High-priority CWE classes
 
@@ -63,6 +64,7 @@ For each entry point, form attack hypotheses:
 - CWE-352: CSRF
 - CWE-200: Sensitive data exposure
 - CWE-798: Hardcoded credentials
+- CWE-1188: Insecure default (empty/blank secret, fail-open flag)
 - CWE-327: Broken cryptography
 
 ## Severity calibration

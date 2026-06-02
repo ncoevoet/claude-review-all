@@ -1,0 +1,35 @@
+{
+  "id": "42-concurrent-modification",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "New code removes elements from a List while iterating it with an enhanced for-loop -> ConcurrentModificationException at runtime.",
+    "files": {
+      "src/orders/OrderCleaner.java": {
+        "after": "import java.util.List;\n\npublic class OrderCleaner {\n\n    public record Order(String id, long expiresAt) {\n    }\n\n    public void removeExpired(List<Order> orders, long now) {\n        for (Order order : orders) {\n            if (order.expiresAt() < now) {\n                orders.remove(order);\n            }\n        }\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "concurrent-modification",
+        "file": "src/orders/OrderCleaner.java",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that removeExpired mutates the `orders` list (orders.remove(order)) while iterating it in the enhanced for-loop -> ConcurrentModificationException at runtime, and recommends Iterator.remove(), List.removeIf(...), or collecting-then-removing. Severity IMPORTANT or CRITICAL. FAIL if the concurrent-modification / iterate-and-mutate bug is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs agent flags the iterate-and-remove ConcurrentModificationException",
+    "Recommends removeIf / Iterator.remove"
+  ],
+  "expected_not_behavior": [
+    "Does NOT treat it as a harmless style choice"
+  ]
+}

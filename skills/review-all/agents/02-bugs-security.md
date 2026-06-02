@@ -13,11 +13,22 @@ Apply shared severity tiers, 3-question gate, and auto-drop rules from `_shared.
 
 ## Bug Detection
 
-- Logic errors: wrong comparison operators, off-by-one, inverted conditions
+- Logic errors: wrong comparison operators, off-by-one, inverted conditions, unguarded decrement that can go negative
 - Null/undefined mishandling: missing null checks, optional chaining gaps
-- Race conditions: async operations without synchronization
 - Type mismatches: incorrect casts, wrong generic parameters
-- Resource leaks: unclosed streams, missing cleanup in finally/destroy
+- Resource leaks: unclosed streams/handles; for JDBC/IO, `Connection`/`Statement`/`ResultSet`/file handles opened outside try-with-resources (or without a `finally`) leak on early return or exception
+- Locale-dependent string ops: `toLowerCase()`/`toUpperCase()`/`format()` without an explicit `Locale` (e.g. `Locale.ROOT`) when the result is used as a key, compared, or persisted — breaks under locales like Turkish
+- Silent truncation: a value written to a fixed-width column/field without a length check (consult the schema/migration) → data loss or insert failure
+
+## Concurrency & thread-safety
+
+When changed code shares mutable state across threads (async tasks, executors, request handlers, singletons), check:
+- **Iterate-and-mutate**: removing from / adding to a collection while looping over it → `ConcurrentModificationException`. Use `Iterator.remove` / `removeIf` / collect-then-apply.
+- **Non-thread-safe shared state**: a plain `HashMap`/`ArrayList`/counter mutated from multiple threads, or a field published without `volatile`/synchronization → data race, lost updates, visibility bugs. Prefer concurrent collections / atomics / proper locking.
+- **Non-atomic check-then-act**: `if (map.get(k)==null) map.put(...)`, `count++`, or lazy init via double-checked locking on a **non-`volatile`** field → races / unsafe publication. Use atomic/compute APIs; DCL fields must be `volatile`.
+- **Blocking call under a lock**: remote/IO/`sleep` inside a `synchronized` block serializes all callers → contention/stall. Hoist it out of the critical section.
+- **Swallowed `InterruptedException`**: a catch that neither re-interrupts (`Thread.currentThread().interrupt()`) nor exits the loop → lost cancellation; the thread becomes uninterruptible.
+- **Collision-prone IDs**: identifiers built from a timestamp plus a random suffix are not unique under concurrency → duplicate-key/data loss. Prefer an atomic sequence or UUID.
 
 ## Security (OWASP Top 10)
 
@@ -28,6 +39,7 @@ Apply shared severity tiers, 3-question gate, and auto-drop rules from `_shared.
 - XSS: innerHTML/dangerouslySetInnerHTML/v-html without sanitization
 - Path traversal: user-controlled file paths without validation
 - SSRF: user-controlled URLs in server-side requests
+- Auth/secret default traps: a secret/token/credential compared with `==`/`.equals()` whose configured value can be empty or blank (unset default) → an empty input is accepted. Require non-blank and fail closed.
 
 ## Completeness Analysis
 

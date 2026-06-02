@@ -1,0 +1,37 @@
+{
+  "id": "53-db-column-truncation",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A user-supplied value is written to a VARCHAR(64) column (declared in the unchanged migration) with no length validation -> silent truncation or insert failure on over-length input.",
+    "files": {
+      "src/profile/ProfileRepository.java": {
+        "after": "public class ProfileRepository {\n\n    public interface JdbcTemplate {\n        void update(String sql, Object... args);\n    }\n\n    private final JdbcTemplate jdbc;\n\n    public ProfileRepository(JdbcTemplate jdbc) {\n        this.jdbc = jdbc;\n    }\n\n    public void updateDisplayName(long userId, String displayName) {\n        jdbc.update(\"UPDATE profile SET display_name = ? WHERE id = ?\", displayName, userId);\n    }\n}\n"
+      },
+      "db/migration/V1__profile.sql": {
+        "before": "CREATE TABLE profile (\n    id BIGINT PRIMARY KEY,\n    display_name VARCHAR(64) NOT NULL\n);\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "data-truncation",
+        "file": "src/profile/ProfileRepository.java",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that updateDisplayName writes an unbounded `displayName` into the display_name column declared VARCHAR(64) in the migration, with no length check, so over-length input is silently truncated (or rejected) -> data loss / runtime error, and recommends validating/limiting the length before the update (or widening the column). Severity IMPORTANT, CRITICAL, or DEBT. FAIL if the column-width / truncation risk is not surfaced. The reviewer is expected to consult the migration file for the column width."
+  },
+  "expected_behavior": [
+    "Bugs agent cross-references the VARCHAR(64) column and flags missing length validation"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the unchanged migration file as the change"
+  ]
+}

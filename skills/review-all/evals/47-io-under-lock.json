@@ -1,0 +1,35 @@
+{
+  "id": "47-io-under-lock",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A blocking remote call (remoteConfig.fetchLimit) is executed while holding a shared lock, serializing every caller behind one slow network round-trip.",
+    "files": {
+      "src/limits/RateLimiter.java": {
+        "after": "import java.util.HashMap;\nimport java.util.Map;\n\npublic class RateLimiter {\n\n    public interface RemoteConfig {\n        int fetchLimit(String tenant);\n    }\n\n    private final Object lock = new Object();\n    private final Map<String, Integer> used = new HashMap<>();\n    private final RemoteConfig remoteConfig;\n\n    public RateLimiter(RemoteConfig remoteConfig) {\n        this.remoteConfig = remoteConfig;\n    }\n\n    public boolean allow(String tenant) {\n        synchronized (lock) {\n            int limit = remoteConfig.fetchLimit(tenant);\n            int current = used.getOrDefault(tenant, 0);\n            if (current < limit) {\n                used.put(tenant, current + 1);\n                return true;\n            }\n            return false;\n        }\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "perf",
+        "file": "src/limits/RateLimiter.java",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that allow() performs a blocking/remote call (remoteConfig.fetchLimit) INSIDE the synchronized(lock) block, so all callers serialize behind one slow round-trip -> lock contention / thread starvation / stalls, and recommends moving the fetch outside the critical section (e.g. cache the limit, read it before locking). Severity IMPORTANT or CRITICAL. FAIL if the blocking-I/O-under-lock contention issue is not surfaced."
+  },
+  "expected_behavior": [
+    "Performance agent flags remote/blocking call inside synchronized block",
+    "Recommends hoisting the fetch out of the lock / caching"
+  ],
+  "expected_not_behavior": [
+    "Does NOT only suggest a micro-optimization unrelated to the lock"
+  ]
+}

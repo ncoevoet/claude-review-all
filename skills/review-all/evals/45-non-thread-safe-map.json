@@ -1,0 +1,35 @@
+{
+  "id": "45-non-thread-safe-map",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A plain HashMap field is mutated concurrently from executor-pool threads (warmUp submits put tasks) with no synchronization -> data race, possible lost updates or infinite loop on resize.",
+    "files": {
+      "src/cache/SessionCache.java": {
+        "after": "import java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ExecutorService;\n\npublic class SessionCache {\n\n    private final Map<String, String> entries = new HashMap<>();\n\n    public void warmUp(ExecutorService pool, Iterable<String> keys) {\n        for (String key : keys) {\n            pool.submit(() -> entries.put(key, load(key)));\n        }\n    }\n\n    public String get(String key) {\n        return entries.get(key);\n    }\n\n    private String load(String key) {\n        return key.trim();\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "race-condition",
+        "file": "src/cache/SessionCache.java",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that `entries` is a non-thread-safe java.util.HashMap mutated concurrently from the ExecutorService tasks submitted in warmUp (and read by get) with no synchronization -> data race / lost updates / possible corrupted internal state on concurrent resize, and recommends ConcurrentHashMap or external synchronization. Severity IMPORTANT or CRITICAL. FAIL if the concurrent-access / thread-safety problem is not surfaced."
+  },
+  "expected_behavior": [
+    "Bugs/Security agent flags concurrent HashMap mutation",
+    "Recommends ConcurrentHashMap"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim the single-threaded path is buggy in isolation"
+  ]
+}
