@@ -37,7 +37,7 @@ Persona: `verifier.md`. Spawn ONE verifier per source agent, IN PARALLEL — eac
 
 **Model tier**: verifier agents spawned at the `verifierModel` config tier (default `haiku`; see `config-keys.md`). Verification is a constrained re-read with JSON-schema output — Haiku handles it cleanly while cutting verifier token cost by 60–70% vs the source-agent tier. Override to `sonnet`/`opus` if you observe verifier mis-scoring on a given codebase, or `inherit` to pin to the parent session's tier.
 
-Each verifier receives: source agent's findings, full diff, source files, Project Profile, CLAUDE.md rules, and the cross-agent confirmation map (to apply the +10 cross-confirmation bonus). Snoozed/`wontfix` findings already filtered in Step 2.5.0 — verifier never sees them.
+Each verifier receives: source agent's findings, the **diff hunks and source for the files its findings reference** (not the whole diff or all source files), Project Profile, CLAUDE.md rules, and the cross-agent confirmation map (to apply the +10 cross-confirmation bonus). Scoping the input to the findings' files — instead of pre-loading the entire diff once per source agent — is the main verifier token saving and costs no precision: the verifier is already instructed to re-read the cited `file:line` itself (step 1), and uses `Read`/`Grep` on demand for the occasional cross-file check ("pattern in 5+ files", "handled by a caller elsewhere"). Snoozed/`wontfix` findings already filtered in Step 2.5.0 — verifier never sees them.
 
 ## Threshold
 

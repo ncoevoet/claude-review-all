@@ -1,0 +1,33 @@
+{
+  "id": "57-default-charset-encode-decode",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "New crypto codec converts String<->byte[] via getBytes()/new String() with no Charset, silently using the platform default — non-ASCII secrets corrupt across hosts/locales. Base64 (ASCII) is NOT the defect.",
+    "files": {
+      "src/security/SecretCodec.java": {
+        "after": "import javax.crypto.Cipher;\nimport java.util.Base64;\n\npublic final class SecretCodec {\n\n    private final Cipher encryptCipher;\n    private final Cipher decryptCipher;\n\n    public SecretCodec(Cipher encryptCipher, Cipher decryptCipher) {\n        this.encryptCipher = encryptCipher;\n        this.decryptCipher = decryptCipher;\n    }\n\n    public String encrypt(String plain) throws Exception {\n        byte[] enc = encryptCipher.doFinal(plain.getBytes());\n        return Base64.getEncoder().encodeToString(enc);\n    }\n\n    public String decrypt(String token) throws Exception {\n        byte[] raw = Base64.getDecoder().decode(token);\n        byte[] dec = decryptCipher.doFinal(raw);\n        return new String(dec);\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/security/SecretCodec.java",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that `plain.getBytes()` and/or `new String(dec)` omit an explicit Charset and therefore use the JVM platform default, so a secret encrypted on one host/locale (UTF-8) can fail to round-trip on another (ISO-8859-1/Windows-1252) and any non-ASCII byte is corrupted; the fix is StandardCharsets.UTF_8 on both conversions. Acceptable severity: IMPORTANT or CRITICAL. FAIL if the missing-charset issue is not surfaced. The report should NOT claim the Base64 encode/decode is the bug (Base64 output is ASCII and correct)."
+  },
+  "expected_behavior": [
+    "Bugs/security agent flags the charset-less getBytes()/new String() as platform-default-dependent"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim Base64 encoding is the defect"
+  ]
+}

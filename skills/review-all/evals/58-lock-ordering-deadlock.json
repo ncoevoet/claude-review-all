@@ -1,0 +1,33 @@
+{
+  "id": "58-lock-ordering-deadlock",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "New transfer method nests synchronized(from){synchronized(to){}} so two threads calling transfer(a,b) and transfer(b,a) acquire the two monitors in opposite order — a classic AB-BA deadlock.",
+    "files": {
+      "src/accounts/TransferService.java": {
+        "after": "public class TransferService {\n\n    public void transfer(Account from, Account to, long amount) {\n        synchronized (from) {\n            synchronized (to) {\n                from.debit(amount);\n                to.credit(amount);\n            }\n        }\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "race-condition",
+        "file": "src/accounts/TransferService.java",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report identifies the lock-ordering (AB-BA) deadlock: two concurrent calls transfer(a, b) and transfer(b, a) acquire the `from` and `to` monitors in opposite orders and can deadlock; the fix is to impose a global lock ordering (e.g. lock the lower account id first). Acceptable severity: CRITICAL or IMPORTANT. FAIL if the deadlock risk is not surfaced. The report should not reduce this to a single-lock or reentrancy issue."
+  },
+  "expected_behavior": [
+    "Concurrency/bugs agent flags the AB-BA deadlock and recommends a stable global lock order"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim a single-lock reentrancy problem instead of the ordering deadlock"
+  ]
+}

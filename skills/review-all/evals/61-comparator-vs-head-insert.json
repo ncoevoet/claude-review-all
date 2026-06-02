@@ -1,0 +1,33 @@
+{
+  "id": "61-comparator-vs-head-insert",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "New code sorts candidates by descending score then inserts each with add(0, ...), reversing the order so the lowest-priority item ends up first. Double.compare itself is correct — the bug is the interaction.",
+    "files": {
+      "src/routing/PriorityBuilder.java": {
+        "after": "import java.util.Arrays;\nimport java.util.List;\n\npublic class PriorityBuilder {\n\n    public void build(Candidate[] candidates, List<Candidate> target) {\n        Arrays.sort(candidates, (a, b) -> Double.compare(b.getScore(), a.getScore()));\n        for (Candidate c : candidates) {\n            target.add(0, c);\n        }\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/routing/PriorityBuilder.java",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that sorting candidates by descending score and then inserting every element with `target.add(0, c)` (head insertion) reverses the intended order, so the lowest-score candidate ends up at index 0 (tried first) — inverted priority; the fix is to append at the tail or flip the sort direction. Acceptable severity: IMPORTANT or CRITICAL. FAIL if the order-inversion is not surfaced. The comparator `Double.compare(b, a)` is itself correct (no overflow) and should NOT be flagged as a broken comparator."
+  },
+  "expected_behavior": [
+    "Bugs agent flags the sort-direction vs head-insertion order inversion"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim Double.compare itself is a broken comparator"
+  ]
+}

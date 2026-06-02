@@ -1,0 +1,33 @@
+{
+  "id": "59-signal-before-state",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "New code calls CountDownLatch.countDown() BEFORE assigning the result it is meant to guard, so a waiter released from await() can read a null/stale result (happens-before edge placed at the wrong point). Single writer — not a lost-update race.",
+    "files": {
+      "src/batch/BatchProcessor.java": {
+        "after": "import java.util.concurrent.CountDownLatch;\n\npublic class BatchProcessor {\n\n    private final CountDownLatch done = new CountDownLatch(1);\n    private volatile Result result;\n\n    public void run(Job job) {\n        done.countDown();\n        this.result = compute(job);\n    }\n\n    public Result awaitResult() throws InterruptedException {\n        done.await();\n        return result;\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "race-condition",
+        "file": "src/batch/BatchProcessor.java",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that `done.countDown()` is called before `result` is assigned, so a thread released from `awaitResult()` (`done.await()`) can observe `result` as null or a stale value; the fix is to write `result` before signaling completion. Acceptable severity: CRITICAL or IMPORTANT. FAIL if the publish-before-write ordering bug is not surfaced. The report should NOT claim the `volatile` modifier is the bug, nor describe it as a lost-update race (there is a single writer)."
+  },
+  "expected_behavior": [
+    "Concurrency agent flags the countDown-before-assign ordering inversion"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim volatile is wrong or call it a lost-update race"
+  ]
+}

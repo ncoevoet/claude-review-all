@@ -1,0 +1,33 @@
+{
+  "id": "60-shallow-clone-shared-collection",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "New clone() uses super.clone() and copies a mutable Map field by reference, so clone and original share one backing map; the copy is even flagged mutable. Mutating one silently mutates the other.",
+    "files": {
+      "src/model/RecordBean.java": {
+        "after": "import java.util.HashMap;\nimport java.util.Map;\n\npublic class RecordBean implements Cloneable {\n\n    private Map<String, Object> attributes = new HashMap<>();\n    private boolean immutable;\n\n    public void put(String key, Object value) {\n        attributes.put(key, value);\n    }\n\n    @Override\n    public RecordBean clone() {\n        try {\n            RecordBean copy = (RecordBean) super.clone();\n            copy.immutable = false;\n            return copy;\n        } catch (CloneNotSupportedException ex) {\n            throw new AssertionError(ex);\n        }\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/model/RecordBean.java",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that `clone()` performs a shallow copy: `super.clone()` copies the `attributes` reference, so the clone and the original share the same HashMap and a mutation through one is visible in the other (worse, the clone is explicitly made mutable). The fix is to defensively deep-copy the collection (e.g. `copy.attributes = new HashMap<>(attributes)`). Acceptable severity: IMPORTANT or CRITICAL. FAIL if the shared-mutable-collection aliasing is not surfaced. Copying the primitive boolean via super.clone() is fine and should not be the headline."
+  },
+  "expected_behavior": [
+    "DRY/bugs agent flags the shallow clone aliasing the mutable attributes map"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the boolean field copy as the defect"
+  ]
+}

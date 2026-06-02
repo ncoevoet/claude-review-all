@@ -116,7 +116,7 @@ Big diffs are auto-chunked (`chunkMaxFiles=40`, `chunkMaxBytes=200000`) and re-m
 ### Phase 2.5 — Dedupe → adversarial verify
 
 1. **Dedupe** via `scripts/dedupe.py`: groups by `root_cause_key`, annotates `confirmed_by`, applies global caps (SUGGESTED ≤ 10, QUESTION ≤ 8).
-2. **Verify** in parallel — one verifier per source agent, spawned at `verifierModel` tier (default Haiku — cheap, fast, JSON-bound). Verifier stance is **hostile**: assume every finding is wrong until disproven.
+2. **Verify** in parallel — one verifier per source agent, spawned at `verifierModel` tier (default Haiku — cheap, fast, JSON-bound). Verifier stance is **hostile to the finding, not the code**: assume every finding is wrong until disproven. Its primary gate is a **citation check** — a behavior claim must be provable from a quoted source line, not inferred from naming; ungrounded claims are dropped (or kept only as a ⚪ question). Top severity (🔴/🟠) must be earned by that proof.
 3. Score: `≥75` → main report, `50–74` → appendix, `<50` → silently dropped.
 4. **State sweep** via `scripts/state-sweep.py`: applies `fixed`/`stale`/`snoozed`/`wontfix` transitions to `.claude/review-all/state.json`.
 
@@ -126,7 +126,7 @@ Every spawned agent and every verifier must have returned with valid JSON, or be
 
 ### Phase 3 — Unified report
 
-Sections, in order: Intent · Summary · Gate Results · 🔴 Critical · 🟠 Important · 🟡 Debt · 🔵 Suggested · ⚪ Questions · Dependency Changes · Appendix.
+Opens with a one-line **Verdict** (`N must-fix before merge`, or ✅ none) for instant triage, then: Intent · Summary · Gate Results · 🔴 Critical · 🟠 Important · 🟡 Debt · 🔵 Suggested · ⚪ Questions · Dependency Changes · Appendix · **Scope footer** (files reviewed / skipped). 🔴/🟠 get full anatomy (failure-mode title, `[severity · confidence]` tag, one-sentence impact, suggested fix, ≤8-line evidence); 🟡/🔵/⚪ collapse to one line each. The last line is a machine-readable `<!-- review-all-severity: {…} -->` comment for CI parsing.
 
 Heartbeat lines print at each phase boundary so the user sees forward motion on long runs.
 
@@ -218,10 +218,10 @@ claude-review-all/
 │   ├── references/           # per-phase rules, config schema, state-file lifecycle
 │   ├── evals/                # labeled scenarios + success criteria + grader rubrics
 │   └── scripts/              # preflight, detect-toolchain, dev-server-probe,
-│                             # test-pattern-probe, dedupe, state-sweep,
+│                             # test-pattern-probe, dedupe, state-sweep, validate-evals,
 │                             # materialize-fixture, run-evals, run-evals-headless
-├── tests/                    # deterministic unit tests for the scripts
-└── .github/workflows/ci.yml  # shellcheck + test suite
+├── tests/                    # unit tests + check-anonymization.sh (gitignored blocklist)
+└── .github/workflows/ci.yml  # shellcheck + test suite (incl. anonymization + eval-schema gates)
 ```
 
 All plain Markdown / shell / Python — read, fork, extend.
@@ -229,10 +229,10 @@ All plain Markdown / shell / Python — read, fork, extend.
 ## Development
 
 ```bash
-bash tests/run.sh            # shellcheck-clean shell scripts + Python unit tests (no API key)
+bash tests/run.sh            # anonymization gate + eval-schema validation + shellcheck-clean shell scripts + Python unit tests (no API key)
 ```
 
-CI (`.github/workflows/ci.yml`) runs shellcheck + the suite on every push / PR. The eval suite under `skills/review-all/evals/` is materialized into throwaway git repos and LLM-graded headlessly by `scripts/run-evals-headless.sh` (needs the `claude` CLI); see `skills/review-all/evals/README.md`.
+`tests/run.sh` runs four no-API gates: an **anonymization gate** (`tests/check-anonymization.sh` — fails if a real employer/product/ticket name leaks into published artifacts; the real blocklist is gitignored, a placeholder `*.example.txt` ships), **eval-schema validation** (`scripts/validate-evals.py` — every `evals/*.json` must have a non-empty `grader.rubric`, a materializable fixture, and an id matching its filename), the shell-script tests, and the Python unit tests. CI (`.github/workflows/ci.yml`) runs shellcheck + this suite on every push / PR. The eval suite under `skills/review-all/evals/` is materialized into throwaway git repos and LLM-graded headlessly by `scripts/run-evals-headless.sh` (needs the `claude` CLI); see `skills/review-all/evals/README.md`.
 
 ## License
 

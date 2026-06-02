@@ -1,0 +1,14 @@
+# Anonymization blocklist — EXAMPLE / placeholder patterns (committed).
+#
+# The eval fixtures and docs in this PUBLIC repo must never contain real
+# employer / product / repo / ticket names. check-anonymization.sh greps the
+# published artifacts (skills/, README.md) for the extended-regex patterns
+# below — one per line; blank lines and #-comments ignored; any match fails.
+#
+# Keep REAL names OUT of this committed file. Put them in a sibling
+# `anonymization-blocklist.txt` (gitignored); the script prefers it when present
+# and otherwise falls back to this example. The invented placeholders below
+# never match real content, so CI passes against this file.
+acme-internal-product
+example-corp-codename
+INTERNAL-TICKET-[0-9]+

@@ -2,8 +2,12 @@
 name: review-all
 description: "Multi-agent code review for diffs (project-agnostic). Covers standards, bugs, security, DRY, smells, perf, tests, API contracts, a11y/i18n. Verifies each finding to eliminate false positives. Use for /review-all, pre-PR/pre-commit review, or auditing uncommitted/staged changes."
 argument-hint: "[target] [--paths a,b] [--exclude x,y]"
+effort: high
 allowed-tools: Bash(git diff:*) Bash(git log:*) Bash(git status:*) Bash(git show:*) Bash(git merge-base:*) Bash(git blame:*) Bash(gh pr diff:*) Bash(gh pr view:*) Bash(lsof:*) Bash(timeout:*) Bash(bash:*) Bash(python3:*) Bash(mkdir:*) Read Glob Grep Write Edit AskUserQuestion
 ---
+
+<!-- effort: high is a recall FLOOR. Per Anthropic's Opus 4.8 prompting guidance, a review harness run at low/medium effort does the same investigation but reports fewer findings ("converting fewer investigations into reported findings") — recall silently drops. `high` is Opus 4.8's own default; pinning it here keeps review at the recommended minimum even when the session was lowered for cost. Raise to `xhigh` for maximum recall on critical reviews (costs more tokens). -->
+
 
 # Comprehensive Code Review Orchestrator
 
@@ -83,7 +87,7 @@ Otherwise parse `$ARGUMENTS`.
 | `PR #N` or `#N` | `gh pr diff N` (also fetch `gh pr view N` for title/description) |
 | file paths | Restrict review to those files (compute their diff vs HEAD) |
 | `--paths a/b,c/d` | Path-include filter — restrict resolved diff to files whose path begins with any listed prefix. Composes with any other form (e.g. `PR #42 --paths apps/web,libs/shared`). |
-| `--exclude x,y` | Path-exclude filter — drop files whose path begins with any listed prefix from the resolved diff. Composes with any other form (e.g. `--exclude apps/ng-istra`). |
+| `--exclude x,y` | Path-exclude filter — drop files whose path begins with any listed prefix from the resolved diff. Composes with any other form (e.g. `--exclude vendor,build`). |
 
 `--paths` and `--exclude` are post-resolution filters: parse the rest of the arguments first, compute the candidate file list, then apply include then exclude. Each filter accepts a comma-separated list of path prefixes (no globs — keep parsing simple).
 
@@ -330,7 +334,7 @@ Per-agent timeout default: `600s`. Per-verifier timeout default: `300s`. Configu
 
 Detailed report template, intent summary rules, numbering, section rules live in **`references/phase-3-report.md`** (sibling of this file). Read it when assembling the report.
 
-Required sections (in order): Intent, Summary, Automated Gate Results, Critical, Important, Debt, Suggested, Questions, Dependency Changes (if any), Potential Issues (Appendix). Risk Level: High if any 🔴, Medium if 🟠/🟡, Low otherwise.
+Required sections (in order): **Verdict line** (must-fix count, or ✅ none), Intent, Summary, Automated Gate Results, Critical, Important, Debt, Suggested, Questions, Dependency Changes (if any), Potential Issues (Appendix), **Scope footer** (files reviewed / skipped). Critical & Important findings get full anatomy (failure-mode title + `[severity · confidence]` tag, one-sentence Impact, suggested Fix, ≤8-line Evidence); Debt/Suggested/Questions get one line each. Risk Level: High if any 🔴, Medium if 🟠/🟡, Low otherwise.
 
 ---
 

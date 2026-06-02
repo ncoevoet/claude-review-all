@@ -11,8 +11,12 @@
 #
 # Env:
 #   REVIEW_ALL_EVAL_RUNS=N    runs per case (default 1). >1 smooths LLM noise.
-#   REVIEW_ALL_EVAL_EFFORT=L  pass --effort L (low|medium|high) to the review;
-#                             works around a headless thinking-block API error.
+#   REVIEW_ALL_EVAL_EFFORT=L  pass --effort L (low|medium|high|xhigh|max) to the
+#                             review. LEAVE UNSET to measure at the real operating
+#                             point: on Opus 4.8, low/medium effort SUPPRESSES recall
+#                             (the model reports fewer of the bugs it actually found),
+#                             so a run at --effort low understates the skill. The skill
+#                             pins `effort: high` in its frontmatter as a floor anyway.
 #
 # Prereqs:
 #   - `claude` CLI on PATH, authenticated.
@@ -42,8 +46,11 @@ bad_report() { [[ -z "${1// }" || "$1" == *"API Error"* || "$1" == *"Execution e
 eff=()
 [[ -n "${REVIEW_ALL_EVAL_EFFORT:-}" ]] && eff=(--effort "$REVIEW_ALL_EVAL_EFFORT")
 runs=${REVIEW_ALL_EVAL_RUNS:-1}
+# Bound each claude -p call so a hung review/grade can't stall the whole suite.
+# timeout is optional (GNU coreutils; absent on bare macOS) — uncapped if missing.
+to=(); command -v timeout >/dev/null 2>&1 && to=(timeout "${REVIEW_ALL_EVAL_TIMEOUT:-420}")
 
-review_once() { ( cd "$1" && claude -p "$2" --dangerously-skip-permissions "${eff[@]}" 2>/dev/null ); }
+review_once() { ( cd "$1" && "${to[@]}" claude -p "$2" --dangerously-skip-permissions "${eff[@]}" 2>/dev/null ); }
 
 pass=0; fail=0; err=0
 for f in "$EVALS"/*.json; do
@@ -66,7 +73,7 @@ for f in "$EVALS"/*.json; do
     if bad_report "$report"; then rm -rf "$repo"; continue; fi
     graded=$((graded+1))
     judge=$(printf 'You are grading a code-review report against a rubric. Reason briefly, then on the LAST line output exactly PASS or FAIL.\n\n<rubric>\n%s\n</rubric>\n\n<report>\n%s\n</report>\n' \
-        "$rb" "$report" | claude -p --dangerously-skip-permissions 2>/dev/null)
+        "$rb" "$report" | "${to[@]}" claude -p --dangerously-skip-permissions 2>/dev/null)
     if echo "$judge" | grep -qiE '\bPASS\b' && ! echo "$judge" | tail -1 | grep -qiE '\bFAIL\b'; then
       cp=$((cp+1))
     fi

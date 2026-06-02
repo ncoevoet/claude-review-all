@@ -5,6 +5,14 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 rc=0
 
+echo "== anonymization gate =="
+bash "$HERE/check-anonymization.sh" || rc=1
+
+echo
+echo "== eval schema validation =="
+python3 "$HERE/../skills/review-all/scripts/validate-evals.py" || rc=1
+
+echo
 echo "== shell script tests =="
 bash "$HERE/test_scripts.sh" || rc=1
 

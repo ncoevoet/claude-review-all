@@ -60,6 +60,7 @@ Never report findings that are:
 - Generic (no specific traceable problem)
 - Explicitly silenced (pragma, `// eslint-disable`, `# noqa` with documented reason)
 - Handled elsewhere (middleware, validators, framework guarantees)
+- Defensive code for states that cannot occur on any reachable path — validation belongs at real system boundaries (where untrusted input enters), not for values the code's own invariants already guarantee. Flag a *missing* check only where untrusted data actually arrives; do not flag missing handling for impossible states, and never rank unrequested hardening above 🔵 SUGGESTED. (This is a Question-1 failure — you cannot trace incorrect behavior from a state that cannot arise.)
 - In generated files (unless manually edited)
 - Automated dependency updates with all CI passing
 - Marked `snoozed` (non-expired) or `wontfix` in `stateFile` (`.claude/review-all/state.json`) — see `references/state-file.md`. (Filtering happens centrally in Phase 2.5 Step 2.5.0; agents don't need to re-check.)

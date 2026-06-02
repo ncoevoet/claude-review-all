@@ -61,8 +61,14 @@ A labeled scenario suite that probes whether the orchestrator catches what it sh
 | `53-db-column-truncation` | data loss | An unbounded value written to a `VARCHAR(64)` column (declared in an unchanged migration) with no length check. |
 | `54-mutable-internal-exposure` | encapsulation | A getter returns the internal mutable `List` directly → callers mutate private state. |
 | `55-thread-confined-no-race` | precision / noise floor | Correctly thread-safe code (`ConcurrentHashMap` + `AtomicLong`) must NOT be flagged as a race. |
+| `56-format-string-specifier-mismatch` | bugs / correctness | Invalid `String.format` specifiers (`%z`, dangling `%`) that throw `IllegalFormatException` at runtime; a correct `%%`-escaped sibling must NOT be flagged. |
+| `57-default-charset-encode-decode` | correctness / portability | `getBytes()`/`new String(byte[])` with no `Charset` in a crypto codec → platform-default-dependent, corrupts non-ASCII across hosts (Base64 is not the bug). |
+| `58-lock-ordering-deadlock` | concurrency | Nested `synchronized(from){synchronized(to){}}` → AB-BA deadlock when two threads call it in opposite directions. |
+| `59-signal-before-state` | concurrency | `CountDownLatch.countDown()` called before the guarded result is assigned → a released waiter reads null/stale (single-writer ordering, not a lost-update race). |
+| `60-shallow-clone-shared-collection` | encapsulation / aliasing | `super.clone()` copies a mutable `Map` by reference → clone and original share one backing collection. |
+| `61-comparator-vs-head-insert` | logic | Descending sort then `add(0, …)` head-insertion reverses priority (the `Double.compare` comparator itself is correct). |
 
-55 cases as of this writing. Cases 16–41 were grown from real-world bug-fix patterns; cases 42–55 add a Java concurrency / resource / security flavor (plus a thread-safety precision counter-case, `55`) the otherwise TS/JS-heavy suite lacked — all anonymized, no provenance in the fixtures. Per the develop-tests guidance, keep growing (remaining ideas: sarcastic/ambiguous comments that should not become findings, huge multi-thousand-line diffs, mixed-language repos). Claude can generate additional cases from this baseline set.
+61 cases as of this writing. Cases 16–41 were grown from real-world bug-fix patterns; cases 42–55 add a Java concurrency / resource / security flavor (plus a thread-safety precision counter-case, `55`); cases 56–61 add more Java bug classes (format-string misuse, default-charset, AB-BA deadlock, signal-before-state, shallow-clone aliasing, comparator-vs-head-insert) — all anonymized from real fix patterns, no provenance in the fixtures. Cases are schema-checked by `scripts/validate-evals.py` (a CI gate). Per the develop-tests guidance, keep growing (remaining ideas: sarcastic/ambiguous comments that should not become findings, huge multi-thousand-line diffs, mixed-language repos). Claude can generate additional cases from this baseline set.
 
 ## Schema
 
@@ -81,12 +87,14 @@ Each scenario is a `*.json` file:
 ### Headless + LLM-graded (automated — for iteration cycles)
 
 ```bash
-make install                                  # so /review-all resolves globally
+# Install the skill first (plugin: /plugin install review-all@ncoevoet, or make install)
+# so /review-all resolves globally; the runner reviews via the installed copy.
 bash ../scripts/run-evals-headless.sh         # all cases, 1 run each
 bash ../scripts/run-evals-headless.sh 03      # one case by id prefix
 REVIEW_ALL_EVAL_RUNS=3 bash ../scripts/run-evals-headless.sh   # 3 runs/case, scored by majority
-REVIEW_ALL_EVAL_EFFORT=low bash ../scripts/run-evals-headless.sh  # workaround a headless thinking-block API error
 ```
+
+Leave `REVIEW_ALL_EVAL_EFFORT` UNSET to measure at the real operating point. On Opus 4.8, low/medium effort *suppresses recall* (the model does the same investigation but reports fewer findings), so an old `--effort low` run understates the skill; the skill pins `effort: high` in its frontmatter as a floor.
 
 LLM review/grade output is non-deterministic, so a single run is a noisy signal (a clean case can flip PASS↔FAIL between runs). For a trustworthy baseline — and before attributing a prompt change to a score delta — set `REVIEW_ALL_EVAL_RUNS` to 3+ and compare pass-rates, not single results. A review that errors out (empty/`API Error`) is retried once and, if still bad, reported as `ERROR` (not `FAIL`) so infra flakes don't masquerade as quality regressions.
 

@@ -1,0 +1,33 @@
+{
+  "id": "56-format-string-specifier-mismatch",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "New code uses String.format with invalid conversion specifiers (%z and a dangling %) that throw IllegalFormatException at runtime. A correct sibling format with an escaped %% must NOT be flagged.",
+    "files": {
+      "src/orders/OrderReporter.java": {
+        "after": "import org.slf4j.Logger;\nimport org.slf4j.LoggerFactory;\n\npublic class OrderReporter {\n\n    private static final Logger LOG = LoggerFactory.getLogger(OrderReporter.class);\n\n    public String describe(Order order, Customer customer) {\n        if (order == null) {\n            return String.format(\"no order for %z\", customer.getId());\n        }\n        LOG.info(String.format(\"order %s ready (%% complete)\", order.getId()));\n        return String.format(\"order(%, %s)\", order.getId(), customer.getName());\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/orders/OrderReporter.java",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags at least one invalid Java format specifier in OrderReporter.describe: `%z` is not a valid conversion (throws UnknownFormatConversionException), and `%, %s` contains a dangling `%` conversion — both raise IllegalFormatException at runtime. Acceptable severity: CRITICAL or IMPORTANT. FAIL if neither broken format string is surfaced. The line `String.format(\"order %s ready (%% complete)\", ...)` is CORRECT (`%%` is an escaped percent, `%s` matches its arg) — the report should not claim that line is broken, but do not FAIL solely for an over-mention of it."
+  },
+  "expected_behavior": [
+    "Bugs agent flags the invalid %z and dangling % format specifiers as a runtime IllegalFormatException"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the correct String.format with %% escape and matching %s as buggy"
+  ]
+}
