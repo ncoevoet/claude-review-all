@@ -1,0 +1,42 @@
+{
+  "id": "75-go-defer-in-loop",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A shard loader iterates over a list of shard file paths, opening each file to decode a batch of records. The change \"simplifies\" the per-iteration cleanup: the before-version closed each file explicitly before moving to the next path (on both the success and the decode-error path), but the after-version replaces those explicit f.Close() calls with a single `defer f.Close()` placed INSIDE the loop body. In Go, defer runs at FUNCTION return, not at the end of each loop iteration, so when LoadShards is called with many shard paths every opened os.File stays open simultaneously until the whole function returns -> file-descriptor accumulation and fd exhaustion (\"too many open files\") on a large shard set. Fix: close each file at the end of its own iteration -- call f.Close() explicitly before continuing the loop (as the before-version did), or move the loop body into a helper func / closure so defer fires per iteration.",
+    "files": {
+      "internal/store/loader.go": {
+        "before": "package store\n\nimport (\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"os\"\n)\n\ntype Record struct {\n\tID    string `json:\"id\"`\n\tValue int    `json:\"value\"`\n}\n\nfunc LoadShards(paths []string) ([]Record, error) {\n\tvar records []Record\n\tfor _, p := range paths {\n\t\tf, err := os.Open(p)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"open shard %s: %w\", p, err)\n\t\t}\n\t\tvar batch []Record\n\t\tif err := json.NewDecoder(f).Decode(&batch); err != nil {\n\t\t\tf.Close()\n\t\t\treturn nil, fmt.Errorf(\"decode shard %s: %w\", p, err)\n\t\t}\n\t\tf.Close()\n\t\trecords = append(records, batch...)\n\t}\n\treturn records, nil\n}\n",
+        "after": "package store\n\nimport (\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"os\"\n)\n\ntype Record struct {\n\tID    string `json:\"id\"`\n\tValue int    `json:\"value\"`\n}\n\nfunc LoadShards(paths []string) ([]Record, error) {\n\tvar records []Record\n\tfor _, p := range paths {\n\t\tf, err := os.Open(p)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"open shard %s: %w\", p, err)\n\t\t}\n\t\tdefer f.Close()\n\t\tvar batch []Record\n\t\tif err := json.NewDecoder(f).Decode(&batch); err != nil {\n\t\t\treturn nil, fmt.Errorf(\"decode shard %s: %w\", p, err)\n\t\t}\n\t\trecords = append(records, batch...)\n\t}\n\treturn records, nil\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "resource-leak",
+        "file": "internal/store/loader.go",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report's MAIN section (not an appendix, and not dismissed as pre-existing) flags that LoadShards in internal/store/loader.go uses `defer f.Close()` INSIDE the `for` loop, and correctly explains that defer runs at FUNCTION return rather than at the end of each loop iteration, so iterating over many shard paths keeps every opened file handle open simultaneously until LoadShards returns -> file-descriptor accumulation / fd exhaustion (\"too many open files\") on a large shard set. The recommended fix MUST be to release each handle at the end of its own iteration -- e.g. call f.Close() explicitly before the next iteration (as the prior code did), or move the per-iteration work into a helper function / closure so defer fires per iteration. Severity must be IMPORTANT or CRITICAL. FAIL if the finding is absent, only in an appendix, dropped as pre-existing, below IMPORTANT, or if it merely says \"missing Close on the error path / decode failure\" without identifying that the in-loop defer defers all closes to function return and accumulates handles across iterations."
+  },
+  "expected_behavior": [
+    "Bugs or Performance agent flags that `defer f.Close()` is placed inside the for loop in LoadShards",
+    "Explains that defer fires at function return, not per iteration, so all opened file handles stay open until LoadShards returns -> fd accumulation / 'too many open files' on a large shard list",
+    "Recommends closing each file at the end of its own iteration: explicit f.Close() before continuing, or extracting the loop body into a helper func/closure so defer runs per iteration",
+    "Severity IMPORTANT or CRITICAL",
+    "Verifier keeps the finding"
+  ],
+  "expected_not_behavior": [
+    "Does NOT reduce the issue to a missing Close only on the decode-error path while ignoring that the in-loop defer accumulates ALL handles until function return",
+    "Does NOT claim the code is correct because every file is eventually closed (it is, but only at function return, after they have all piled up)",
+    "Does NOT flag the prior explicit-Close-per-iteration style as the bug",
+    "Does NOT only comment on Go style / error-wrapping unrelated to the handle accumulation"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "id": "82-sql-intentional-equality-correct",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Precision counter-case (Python/SQL). An OrderStore.list_active_orders is changed to filter active rows with `WHERE status = ?` bound to the constant STATUS_ACTIVE = 1. The `orders` schema (in an unchanged migration provided as context) declares `status INTEGER NOT NULL DEFAULT 0`, so the column is NOT NULL and every row has a concrete status (0=cancelled, 1=active, 2=archived) — no row can ever be NULL. The query is parameterized, and the method docstring explicitly states status is NOT NULL and that selecting `status = STATUS_ACTIVE` is the intended semantics (cancelled and archived rows are deliberately excluded). The equality predicate is therefore CORRECT and complete: because NULL is structurally impossible on this column, SQL three-valued logic cannot silently drop any row. A reviewer hardened on \"WHERE col = x drops NULL rows\" (recall case 66) might wrongly flag this as a NULL-logic bug needing COALESCE/IS-DISTINCT-FROM — it is not. Modified-file diff: `before` selects all orders newest-first (no status filter, no constant); `after` introduces the STATUS_ACTIVE constant, the clarifying docstring, and the `WHERE status = ?` active filter, so the diff is non-empty and the added equality predicate is exactly what must NOT be flagged. The migration file is supplied unchanged purely as schema context.",
+    "files": {
+      "src/orders/order_store.py": {
+        "before": "from typing import Any\n\n\nclass OrderStore:\n    \"\"\"Data access for the orders table.\"\"\"\n\n    def __init__(self, conn: Any) -> None:\n        self._conn = conn\n\n    def list_active_orders(self, limit: int = 100) -> list[dict[str, Any]]:\n        \"\"\"Return all orders, newest first.\"\"\"\n        cur = self._conn.execute(\n            \"\"\"\n            SELECT id, customer_id, total_cents, status\n            FROM orders\n            ORDER BY created_at DESC\n            LIMIT ?\n            \"\"\",\n            (limit,),\n        )\n        cols = [c[0] for c in cur.description]\n        return [dict(zip(cols, row)) for row in cur.fetchall()]\n",
+        "after": "from typing import Any\n\nSTATUS_ACTIVE = 1\n\n\nclass OrderStore:\n    \"\"\"Data access for the orders table.\n\n    The `status` column is declared NOT NULL DEFAULT 0 (see\n    db/migrations/0007_orders.sql): every order has a concrete status,\n    so no row can have a NULL status. `status = STATUS_ACTIVE` therefore\n    selects exactly the active orders and intentionally excludes\n    cancelled (0) and archived (2) orders.\n    \"\"\"\n\n    def __init__(self, conn: Any) -> None:\n        self._conn = conn\n\n    def list_active_orders(self, limit: int = 100) -> list[dict[str, Any]]:\n        \"\"\"Return active orders, newest first.\"\"\"\n        cur = self._conn.execute(\n            \"\"\"\n            SELECT id, customer_id, total_cents, status\n            FROM orders\n            WHERE status = ?\n            ORDER BY created_at DESC\n            LIMIT ?\n            \"\"\",\n            (STATUS_ACTIVE, limit),\n        )\n        cols = [c[0] for c in cur.description]\n        return [dict(zip(cols, row)) for row in cur.fetchall()]\n"
+      },
+      "db/migrations/0007_orders.sql": {
+        "before": "CREATE TABLE orders (\n    id           INTEGER PRIMARY KEY,\n    customer_id  INTEGER NOT NULL,\n    total_cents  INTEGER NOT NULL,\n    status       INTEGER NOT NULL DEFAULT 0,\n    created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\n",
+        "after": "CREATE TABLE orders (\n    id           INTEGER PRIMARY KEY,\n    customer_id  INTEGER NOT NULL,\n    total_cents  INTEGER NOT NULL,\n    status       INTEGER NOT NULL DEFAULT 0,\n    created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/orders/order_store.py"
+      }
+    ],
+    "max_critical": 0
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "This file is CORRECT — the `WHERE status = ?` equality predicate in `OrderStore.list_active_orders` (src/orders/order_store.py) intentionally and correctly selects active orders, and excluding NULL is NOT a defect here. The `status` column is declared `INTEGER NOT NULL DEFAULT 0` in the unchanged schema (db/migrations/0007_orders.sql), so the column can never hold NULL; every row has a concrete status (0=cancelled, 1=active, 2=archived). Because NULL is structurally impossible on this column, SQL three-valued logic cannot silently drop any row, and the parameterized `status = STATUS_ACTIVE` (1) predicate selects exactly the active rows as the docstring states (cancelled/archived deliberately excluded). PASS if the report does NOT flag any NULL-logic / three-valued-logic / \"WHERE status = 1 silently drops NULL rows\" / \"use COALESCE / IS DISTINCT FROM / IS NOT\" correctness defect against src/orders/order_store.py. A non-correctness note kept at SUGGESTED/QUESTION severity — e.g. proposing a named status enum, suggesting the literal codes be documented further, or general readability/testability remarks — is acceptable and does NOT cause a FAIL. FAIL if the report flags the `WHERE status = ?`/`status = 1` predicate as a NULL-handling bug (claiming it wrongly excludes NULL rows or needs COALESCE/IS-DISTINCT-FROM/IS-NOT) at DEBT/IMPORTANT/CRITICAL, treats the unchanged migration as the change under review, claims SQL injection (the query is parameterized), or invents any other CRITICAL/IMPORTANT defect that is not real."
+  },
+  "expected_behavior": [
+    "No NULL-logic / three-valued-logic finding is reported for src/orders/order_store.py (the status column is NOT NULL DEFAULT 0, so WHERE status = 1 cannot drop NULL rows)",
+    "The added WHERE status = ? predicate is recognized as the intended active-row filter; any note about it stays at SUGGESTED/QUESTION (e.g. a named status enum) rather than a correctness-defect claim",
+    "The query is recognized as parameterized (no SQL-injection claim)"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag WHERE status = 1 / status = ? as silently excluding NULL rows or as needing COALESCE / IS DISTINCT FROM / IS NOT (the column is NOT NULL DEFAULT 0 per the schema)",
+    "Does NOT treat the unchanged migration file as the change being reviewed",
+    "Does NOT claim SQL injection (the predicate is bound via a parameter)",
+    "Does NOT invent an unrelated CRITICAL/IMPORTANT defect to justify a finding"
+  ]
+}

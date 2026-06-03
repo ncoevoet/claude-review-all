@@ -1,0 +1,43 @@
+{
+  "id": "78-rust-mutex-across-await",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "MetricsCollector::record was refactored to lock the std::sync::Mutex guarding `counts` and then keep that guard alive across the `self.sink.publish(...).await`. In the pre-bug `before`, the increment ran in a narrow `{ ... }` block that returned the `total` by value, so the MutexGuard was dropped BEFORE the await. The `after` flattens that block: `let mut counts = self.counts.lock().unwrap();` is a local still in scope when `.await` is reached, so the blocking std guard is held across the suspension point. On a multi-threaded async runtime this can deadlock — the task is parked holding the lock while the sink's future (or any other task that needs `counts`) makes no progress — and it also makes the returned future `!Send`. The fix is to drop the guard before awaiting: compute/copy the value out and end the guard's scope (the `before` form), or switch to an async-aware mutex (tokio::sync::Mutex). The code still compiles (verified with rustc 1.75; with an explicit Send bound it fails with 'future cannot be sent between threads safely ... await occurs here, with mut counts maybe used later'), so this is a latent runtime/contention hazard, not a compile error.",
+    "files": {
+      "src/metrics/collector.rs": {
+        "before": "use std::collections::HashMap;\nuse std::future::Future;\nuse std::sync::Mutex;\n\npub trait MetricsSink {\n    fn publish(&self, label: &str, value: u64) -> impl Future<Output = ()>;\n}\n\npub struct MetricsCollector<S: MetricsSink> {\n    counts: Mutex<HashMap<String, u64>>,\n    sink: S,\n}\n\nimpl<S: MetricsSink> MetricsCollector<S> {\n    pub fn new(sink: S) -> Self {\n        Self {\n            counts: Mutex::new(HashMap::new()),\n            sink,\n        }\n    }\n\n    pub async fn record(&self, label: &str) {\n        let total = {\n            let mut counts = self.counts.lock().unwrap();\n            let entry = counts.entry(label.to_string()).or_insert(0);\n            *entry += 1;\n            *entry\n        };\n        self.sink.publish(label, total).await;\n    }\n}\n",
+        "after": "use std::collections::HashMap;\nuse std::future::Future;\nuse std::sync::Mutex;\n\npub trait MetricsSink {\n    fn publish(&self, label: &str, value: u64) -> impl Future<Output = ()>;\n}\n\npub struct MetricsCollector<S: MetricsSink> {\n    counts: Mutex<HashMap<String, u64>>,\n    sink: S,\n}\n\nimpl<S: MetricsSink> MetricsCollector<S> {\n    pub fn new(sink: S) -> Self {\n        Self {\n            counts: Mutex::new(HashMap::new()),\n            sink,\n        }\n    }\n\n    pub async fn record(&self, label: &str) {\n        let mut counts = self.counts.lock().unwrap();\n        let entry = counts.entry(label.to_string()).or_insert(0);\n        *entry += 1;\n        self.sink.publish(label, *entry).await;\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "race-condition",
+        "file": "src/metrics/collector.rs",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report, in its MAIN body (not an appendix / lower-confidence / dropped-findings section), flags that MetricsCollector::record in src/metrics/collector.rs holds the std::sync::Mutex guard (the `counts` lock from `self.counts.lock().unwrap()`) ALIVE ACROSS the `self.sink.publish(...).await` point — i.e. the blocking guard is a still-in-scope local at the suspension point — and explains the hazard as some combination of: deadlock / lock contention / the task being parked while holding the lock on a multi-threaded async runtime, and/or the future becoming !Send. The report MUST name a correct fix: drop the guard before awaiting (narrow the guard's scope / copy or compute the value out and release the lock before `.await`, as the diff's removed `{ ... }` block did), OR switch to an async-aware mutex (tokio::sync::Mutex). Severity must be IMPORTANT or CRITICAL. FAIL if the across-await guard issue is absent, rated below IMPORTANT, surfaced only in an appendix/low-confidence section, or dismissed as pre-existing. FAIL if the report only complains about the increment logic, an unrelated style nit, or a lost-update/atomicity concern WITHOUT identifying that the guard is held across the await. Do NOT require the exact phrase 'held across await'; an equivalent description of the lock being retained over the suspension point is sufficient."
+  },
+  "expected_behavior": [
+    "Concurrency/bugs agent flags that record() keeps the std::sync::Mutex guard in scope across self.sink.publish(...).await (guard held across an await point)",
+    "Explains the consequence: deadlock / lock contention / task parked holding the lock on a multi-threaded runtime, and/or a non-Send future",
+    "Names the fix: drop the guard before awaiting (narrow scope / copy the value out, as the removed inner block did) or use tokio::sync::Mutex",
+    "Reports it in src/metrics/collector.rs at IMPORTANT or CRITICAL severity in the main report",
+    "Connects the regression to the diff flattening the inner { ... } block that previously released the guard before the await"
+  ],
+  "expected_not_behavior": [
+    "Does NOT misdiagnose it as merely a lost-update/atomic-increment race (the read-modify-write itself is under the lock; the bug is holding the guard across the await)",
+    "Does NOT claim the code fails to compile (it compiles; this is a latent runtime/contention hazard)",
+    "Does NOT relegate the finding to an appendix/low-confidence section or dismiss it as pre-existing",
+    "Does NOT rate it below IMPORTANT",
+    "Does NOT demand replacing the std Mutex when simply dropping the guard before the await is a valid minimal fix"
+  ]
+}

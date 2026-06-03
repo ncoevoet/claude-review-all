@@ -1,0 +1,37 @@
+{
+  "id": "70-generation-counter-correct",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Precision case: an async ResultsLoader now guards against stale responses with a per-request generation counter. It increments latestRequestId before each query, captures it in a local, and after the await commits to state only if requestId still equals latestRequestId. Stale (superseded) responses are correctly discarded. The agents must NOT invent a race / stale-state defect here.",
+    "files": {
+      "src/data/results-loader.ts": {
+        "before": "export interface SearchClient {\n  query(term: string): Promise<string[]>;\n}\n\nexport class ResultsLoader {\n  private results: string[] = [];\n  private loading = false;\n\n  constructor(private readonly client: SearchClient) {}\n\n  async load(term: string): Promise<void> {\n    this.loading = true;\n    try {\n      this.results = await this.client.query(term);\n    } finally {\n      this.loading = false;\n    }\n  }\n\n  getResults(): readonly string[] {\n    return this.results;\n  }\n\n  isLoading(): boolean {\n    return this.loading;\n  }\n}\n",
+        "after": "export interface SearchClient {\n  query(term: string): Promise<string[]>;\n}\n\nexport class ResultsLoader {\n  private latestRequestId = 0;\n  private results: string[] = [];\n  private loading = false;\n\n  constructor(private readonly client: SearchClient) {}\n\n  async load(term: string): Promise<void> {\n    const requestId = ++this.latestRequestId;\n    this.loading = true;\n    try {\n      const rows = await this.client.query(term);\n      if (requestId !== this.latestRequestId) {\n        return;\n      }\n      this.results = rows;\n    } finally {\n      if (requestId === this.latestRequestId) {\n        this.loading = false;\n      }\n    }\n  }\n\n  getResults(): readonly string[] {\n    return this.results;\n  }\n\n  isLoading(): boolean {\n    return this.loading;\n  }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "race-condition",
+        "file": "src/data/results-loader.ts"
+      }
+    ],
+    "max_critical": 0
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "This file is CORRECT. ResultsLoader.load uses a per-request generation counter to discard stale async responses: it does `const requestId = ++this.latestRequestId` synchronously before awaiting, then after `await this.client.query(term)` it commits `this.results = rows` only when `requestId === this.latestRequestId`, and likewise only clears `this.loading` for the still-current request. Because JavaScript runs the increment+capture atomically (single-threaded, run-to-completion event loop), two overlapping load() calls always get distinct requestId values, and a superseded (stale) response is correctly dropped — there is no lost update or stale-state write. PASS if the report does NOT claim any race-condition / stale-response / out-of-order / lost-update / concurrency-correctness defect in this file. A non-correctness SUGGESTED or QUESTION note (e.g. exposing the generation counter for testability, adding AbortSignal cancellation, or naming) is acceptable and does NOT cause a FAIL. FAIL if the report flags the generation-counter guard as a race condition, claims stale responses can still overwrite state, claims load() is not safe under concurrent/overlapping calls, or recommends locking/synchronization to fix a (non-existent) data race — any of those is a false positive."
+  },
+  "expected_behavior": [
+    "No concurrency / stale-state finding is reported (the generation-counter guard is correct)",
+    "Any note about the new code stays at SUGGESTED/QUESTION and is not a race-condition claim"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the generation-counter guard as a race condition or stale-response bug",
+    "Does NOT claim a superseded response can still overwrite this.results",
+    "Does NOT recommend locking/synchronization for a non-existent data race"
+  ]
+}

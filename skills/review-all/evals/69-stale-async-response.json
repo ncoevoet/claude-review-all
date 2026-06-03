@@ -1,0 +1,41 @@
+{
+  "id": "69-stale-async-response",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A panel component loads a job's status asynchronously and writes the resolved result into a field. A refactor removes the request-generation guard, so when select() is called repeatedly in quick succession, a slower EARLIER fetchStatus() can resolve AFTER a newer one and overwrite fresh state with stale data (concurrent async load overwrites newer state). The fix is to restore a per-request id/generation captured before the await and discard the response when it no longer matches the latest request.",
+    "files": {
+      "src/ui/job-detail-panel.ts": {
+        "before": "export interface JobStatus {\n  id: string;\n  state: \"queued\" | \"running\" | \"done\" | \"failed\";\n}\n\nexport interface JobGateway {\n  fetchStatus(id: string): Promise<JobStatus>;\n}\n\nexport class JobDetailPanel {\n  private status: JobStatus | null = null;\n  private latestRequest = 0;\n\n  constructor(private readonly gateway: JobGateway) {}\n\n  async select(jobId: string): Promise<void> {\n    const requestId = ++this.latestRequest;\n    const result = await this.gateway.fetchStatus(jobId);\n    if (requestId !== this.latestRequest) {\n      return;\n    }\n    this.status = result;\n  }\n\n  current(): JobStatus | null {\n    return this.status;\n  }\n}\n",
+        "after": "export interface JobStatus {\n  id: string;\n  state: \"queued\" | \"running\" | \"done\" | \"failed\";\n}\n\nexport interface JobGateway {\n  fetchStatus(id: string): Promise<JobStatus>;\n}\n\nexport class JobDetailPanel {\n  private status: JobStatus | null = null;\n\n  constructor(private readonly gateway: JobGateway) {}\n\n  async select(jobId: string): Promise<void> {\n    const result = await this.gateway.fetchStatus(jobId);\n    this.status = result;\n  }\n\n  current(): JobStatus | null {\n    return this.status;\n  }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "race-condition",
+        "file": "src/ui/job-detail-panel.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report, in its MAIN body (not an appendix/notes section), flags that JobDetailPanel.select() in src/ui/job-detail-panel.ts writes the awaited fetchStatus() result into this.status without guarding against out-of-order resolution — so when select() is called repeatedly in quick succession, a slower earlier request can resolve after a newer one and overwrite the fresher status with stale data (a stale-async-response / lost-update race) — AND names the correct fix: capture a per-request generation/sequence/request-id before the await and discard (ignore) the response when it no longer matches the latest request (equivalently, restore the latestRequest guard that the diff removed; an AbortController/cancel-previous approach also counts). Severity must be IMPORTANT or CRITICAL. FAIL if the issue is absent, rated below IMPORTANT, surfaced only in an appendix/lower-confidence/dropped-findings section, dismissed as pre-existing, or if the report only complains about the missing field/typing without identifying the out-of-order overwrite. The single-request path is correct and must NOT be called buggy in isolation."
+  },
+  "expected_behavior": [
+    "Bugs/concurrency agent flags that select() can overwrite newer status with an older fetchStatus() response when called repeatedly in quick succession (out-of-order async resolution / lost update)",
+    "Recommends restoring a per-request generation/request-id captured before the await and discarding the result when it no longer matches the latest request (or cancelling the prior request via AbortController)",
+    "Identifies the bug in src/ui/job-detail-panel.ts at IMPORTANT or CRITICAL severity in the main report",
+    "Connects the bug to the removed latestRequest guard shown in the diff"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim a single select() call is buggy in isolation (the issue only manifests under overlapping concurrent calls)",
+    "Does NOT dismiss the issue as pre-existing or relegate it to an appendix/low-confidence section",
+    "Does NOT rate it below IMPORTANT",
+    "Does NOT misdiagnose it as merely a missing null check, a typing issue, or a missing await (fetchStatus IS awaited)"
+  ]
+}

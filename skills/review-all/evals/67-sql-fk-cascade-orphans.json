@@ -1,0 +1,44 @@
+{
+  "id": "67-sql-fk-cascade-orphans",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "delete_record was simplified to DELETE the parent `records` row only. The child tables `record_tags` and the derived `record_search_index` reference record_id with no ON DELETE CASCADE (see the unchanged migration), so their rows are orphaned after the delete and resurface in later joins/searches. The previous version deleted the child rows in the same transaction.",
+    "files": {
+      "src/data/records.py": {
+        "before": "import sqlite3\n\n\ndef delete_record(conn: sqlite3.Connection, record_id: int) -> None:\n    \"\"\"Delete a record and everything that references it.\"\"\"\n    cur = conn.cursor()\n    try:\n        cur.execute(\"DELETE FROM record_search_index WHERE record_id = ?\", (record_id,))\n        cur.execute(\"DELETE FROM record_tags WHERE record_id = ?\", (record_id,))\n        cur.execute(\"DELETE FROM records WHERE id = ?\", (record_id,))\n        conn.commit()\n    except sqlite3.Error:\n        conn.rollback()\n        raise\n",
+        "after": "import sqlite3\n\n\ndef delete_record(conn: sqlite3.Connection, record_id: int) -> None:\n    \"\"\"Delete a record by id.\"\"\"\n    cur = conn.cursor()\n    try:\n        cur.execute(\"DELETE FROM records WHERE id = ?\", (record_id,))\n        conn.commit()\n    except sqlite3.Error:\n        conn.rollback()\n        raise\n"
+      },
+      "db/migrations/0001_records.sql": {
+        "before": "CREATE TABLE records (\n    id INTEGER PRIMARY KEY,\n    title TEXT NOT NULL,\n    created_at TEXT NOT NULL\n);\n\nCREATE TABLE record_tags (\n    record_id INTEGER NOT NULL REFERENCES records(id),\n    tag TEXT NOT NULL,\n    PRIMARY KEY (record_id, tag)\n);\n\nCREATE TABLE record_search_index (\n    record_id INTEGER NOT NULL REFERENCES records(id),\n    term TEXT NOT NULL\n);\n",
+        "after": "CREATE TABLE records (\n    id INTEGER PRIMARY KEY,\n    title TEXT NOT NULL,\n    created_at TEXT NOT NULL\n);\n\nCREATE TABLE record_tags (\n    record_id INTEGER NOT NULL REFERENCES records(id),\n    tag TEXT NOT NULL,\n    PRIMARY KEY (record_id, tag)\n);\n\nCREATE TABLE record_search_index (\n    record_id INTEGER NOT NULL REFERENCES records(id),\n    term TEXT NOT NULL\n);\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/data/records.py",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the MAIN report body (NOT an appendix / pre-existing / out-of-scope section) flags that delete_record now deletes only the parent `records` row while child references — `record_tags` and `record_search_index` — are NOT removed, and the schema (the migration) declares those foreign keys with NO ON DELETE CASCADE, so deleting a record leaves orphaned child rows / a stale search-index entry that later queries surface. The finding must be on src/data/records.py and rated IMPORTANT or CRITICAL (a 🟠 or 🔴). It must name the correct fix: also delete (or NULL) the record_tags and record_search_index rows for that record_id in the same transaction (equivalently, add ON DELETE CASCADE to the schema). FAIL if the orphaned-child / missing-cascade issue is absent, rated below IMPORTANT, surfaced only in an appendix, or dropped as pre-existing / not-introduced. Consulting the unchanged migration to confirm the missing cascade is expected and good, but the regression itself is the removed child deletes in records.py."
+  },
+  "expected_behavior": [
+    "Bugs agent flags that delete_record removes only the parent records row and leaves record_tags / record_search_index rows orphaned",
+    "Cross-references the migration to confirm the foreign keys have no ON DELETE CASCADE",
+    "Recommends deleting (or NULLing) the child rows in the same transaction, or adding ON DELETE CASCADE",
+    "Severity IMPORTANT or CRITICAL, in the main report"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the unchanged migration file as the change being introduced",
+    "Does NOT drop the issue as pre-existing because the child tables are declared in an unchanged file",
+    "Does NOT demand a specific RDBMS — the missing-cascade orphan risk holds regardless of engine"
+  ]
+}

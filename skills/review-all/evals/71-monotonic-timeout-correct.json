@@ -1,0 +1,37 @@
+{
+  "id": "71-monotonic-timeout-correct",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Correct single-domain timeout loop: wait_for_completion measures its elapsed-time budget entirely with time.monotonic() (start = time.monotonic(); while time.monotonic() - start < timeout_seconds; remaining = timeout_seconds - (time.monotonic() - start)) and never mixes in wall-clock time.time(). A datetime.now(timezone.utc) call appears only to stamp a human-readable completed_at audit field, never inside the elapsed/remaining computation. Precision counter-case: a reviewer pattern-matching on monotonic+subtraction sitting next to a wall-clock call must NOT invent a clock-domain/time-API mismatch here.",
+    "files": {
+      "src/worker/task_poller.py": {
+        "before": "import time\nfrom datetime import datetime, timezone\nfrom typing import Callable, Optional\n\n\nclass TaskTimeoutError(Exception):\n    \"\"\"Raised when a task does not complete before its deadline.\"\"\"\n\n\ndef wait_for_completion(\n    poll: Callable[[], Optional[dict]],\n    timeout_seconds: float,\n    interval_seconds: float = 0.5,\n) -> dict:\n    \"\"\"Poll until the task reports completion.\"\"\"\n    while True:\n        status = poll()\n        if status is not None and status.get(\"done\"):\n            status[\"completed_at\"] = datetime.now(timezone.utc).isoformat()\n            return status\n        time.sleep(interval_seconds)\n",
+        "after": "import time\nfrom datetime import datetime, timezone\nfrom typing import Callable, Optional\n\n\nclass TaskTimeoutError(Exception):\n    \"\"\"Raised when a task does not complete before its deadline.\"\"\"\n\n\ndef wait_for_completion(\n    poll: Callable[[], Optional[dict]],\n    timeout_seconds: float,\n    interval_seconds: float = 0.5,\n) -> dict:\n    \"\"\"Poll until the task reports completion or the timeout elapses.\n\n    The elapsed-time budget is measured with a monotonic clock so it is\n    immune to wall-clock adjustments (NTP steps, DST, manual changes).\n    \"\"\"\n    start = time.monotonic()\n    backoff = interval_seconds\n    while time.monotonic() - start < timeout_seconds:\n        status = poll()\n        if status is not None and status.get(\"done\"):\n            status[\"completed_at\"] = datetime.now(timezone.utc).isoformat()\n            return status\n        remaining = timeout_seconds - (time.monotonic() - start)\n        time.sleep(min(backoff, max(remaining, 0.0)))\n        backoff = min(backoff * 2, 5.0)\n    raise TaskTimeoutError(f\"task did not complete within {timeout_seconds}s\")\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "clock-domain-mismatch",
+        "file": "src/worker/task_poller.py"
+      }
+    ],
+    "max_critical": 0
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "This file is CORRECT. wait_for_completion measures its entire elapsed-time budget with a single clock domain: time.monotonic() is captured once into `start`, the loop condition is `time.monotonic() - start < timeout_seconds`, and `remaining` is `timeout_seconds - (time.monotonic() - start)` — all monotonic. The only datetime.now(timezone.utc) call is used solely to stamp a human-readable `completed_at` audit field on the returned status, and is never mixed into the elapsed/remaining/timeout math. PASS if the report does NOT flag any clock-domain, mixed-clock, time-API mismatch, or monotonic-vs-wall-clock subtraction defect in this file. A non-correctness SUGGESTED/QUESTION note (e.g. about exposing the interval as a parameter, that completed_at uses wall time for display, or hardening against a negative interval_seconds — which is also present in the before-code and is not a regression) is acceptable and does NOT cause a FAIL. FAIL only if the report claims a clock-domain/time-API correctness bug — e.g. that monotonic and wall-clock readings are subtracted from each other, that the elapsed/timeout computation mixes time.monotonic() with datetime.now()/time.time(), or that the timeout math is unreliable due to clock-source mixing (that would be a false positive)."
+  },
+  "expected_behavior": [
+    "No clock-domain / time-API finding is reported (the timeout uses a single monotonic clock domain throughout)",
+    "Any note about the wall-clock completed_at timestamp, if present, is non-correctness (SUGGESTED/QUESTION) and does not claim a mixed-clock bug"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag a clock-domain / mixed-clock / monotonic-vs-wall-clock subtraction defect",
+    "Does NOT claim the elapsed/timeout computation mixes time.monotonic() with datetime.now() or time.time()",
+    "Does NOT invent a CRITICAL/IMPORTANT correctness finding about the timeout math"
+  ]
+}

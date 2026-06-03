@@ -1,0 +1,41 @@
+{
+  "id": "62-python-import-shadowing",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A module imports a helper at module level (`from store import init_store`). The bootstrap() function dispatches on `mode` across several if/elif branches; a redundant function-local `from store import init_store` is added inside the late `audit` branch. Python binds `init_store` as a function-local for the ENTIRE bootstrap() scope, so the earlier `session` and `metrics` branches — which never reach the local import — raise `UnboundLocalError: cannot access local variable 'init_store'` at runtime. The fix is to drop the redundant local import (the module-level import already covers all branches), or equivalently to hoist a single import to the top of the function and drop the module-level one.",
+    "files": {
+      "src/store/bootstrap.py": {
+        "before": "from store import init_store\n\nDEFAULT_TTL = 300\n\n\ndef bootstrap(mode, name):\n    \"\"\"Create and return a backing store for the given mode.\"\"\"\n    if mode == \"session\":\n        store = init_store(name, ttl=DEFAULT_TTL)\n    elif mode == \"metrics\":\n        store = init_store(name)\n        store[\"entries\"][\"count\"] = 0\n    elif mode == \"audit\":\n        store = init_store(name, ttl=None)\n    else:\n        raise ValueError(f\"unknown mode: {mode}\")\n    return store\n",
+        "after": "from store import init_store\n\nDEFAULT_TTL = 300\n\n\ndef bootstrap(mode, name):\n    \"\"\"Create and return a backing store for the given mode.\"\"\"\n    if mode == \"session\":\n        store = init_store(name, ttl=DEFAULT_TTL)\n    elif mode == \"metrics\":\n        store = init_store(name)\n        store[\"entries\"][\"count\"] = 0\n    elif mode == \"audit\":\n        from store import init_store\n        store = init_store(name, ttl=None)\n    else:\n        raise ValueError(f\"unknown mode: {mode}\")\n    return store\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/store/bootstrap.py",
+        "min_severity": "CRITICAL",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report's MAIN section (not an appendix) contains a finding, at CRITICAL severity (or higher), for src/store/bootstrap.py, that identifies the following: the function-local `from store import init_store` added inside the `audit` branch of bootstrap() makes `init_store` a local variable for the ENTIRE function scope (Python binds a name as local for the whole function if it is assigned/imported anywhere in it), so the earlier `session` and `metrics` branches call `init_store(...)` before it is bound and raise `UnboundLocalError` at runtime. The finding must also name a correct fix: EITHER remove/drop the redundant function-local import (the module-level `from store import init_store` already covers every branch), OR move the import to a single location at the top of the function and drop the module-level one — either is acceptable as long as the result is that `init_store` is bound on every branch. FAIL if this bug is absent, reported below CRITICAL severity, appendix-only, dropped/dismissed as pre-existing or merely stylistic, or if the report misdiagnoses it (e.g. calls it a mere duplicate-import lint with no runtime crash, claims the code runs fine, or claims only the `audit` branch is affected)."
+  },
+  "expected_behavior": [
+    "Bugs agent flags that the function-local `from store import init_store` in the `audit` branch makes `init_store` a local for the whole bootstrap() scope (Python's function-scope binding rule), shadowing the module-level import",
+    "Explains the earlier `session` / `metrics` branches hit UnboundLocalError at runtime because `init_store` is treated as a local that is not yet bound when those branches execute",
+    "Recommends a correct fix: drop the redundant function-local import so the module-level import applies to every branch (equivalently, use a single import at the top of the function)",
+    "Severity CRITICAL (deterministic runtime crash on the common session/metrics code paths)",
+    "Finding is in the main report and cites src/store/bootstrap.py"
+  ],
+  "expected_not_behavior": [
+    "Does NOT downgrade this to a style/lint nit about a duplicate import with no runtime impact",
+    "Does NOT claim only the `audit` branch is affected or that the code runs fine",
+    "Does NOT dismiss it as a pre-existing issue (the local import is introduced by this diff)"
+  ]
+}

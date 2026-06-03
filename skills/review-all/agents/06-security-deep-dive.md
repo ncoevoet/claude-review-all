@@ -66,6 +66,7 @@ For each entry point, form attack hypotheses:
 - CWE-798: Hardcoded credentials
 - CWE-1188: Insecure default (empty/blank secret, fail-open flag)
 - CWE-327: Broken cryptography
+- CWE-1236: CSV/formula injection — exported text whose value starts with `=`, `+`, `-`, `@` (or tab/CR) executes as a formula when opened in a spreadsheet. RFC-4180 quoting alone does NOT mitigate it; flag an export/CSV helper that quotes fields but does not neutralize a leading formula trigger (fix: prefix a single quote, guarded by a type check so numbers stay numeric).
 
 ## Severity calibration
 

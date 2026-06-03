@@ -1,0 +1,40 @@
+{
+  "id": "68-csv-formula-injection",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A new CSV exporter writes a user-supplied free-text `label` into each row. The escapeField helper correctly RFC-4180-quotes fields (doubles quotes, wraps values containing comma/quote/newline) but emits everything else verbatim. A label that starts with =, +, -, or @ contains no quoting trigger, so it passes through unquoted and becomes a live formula when the file is opened in Excel/Sheets (CSV/formula injection, CWE-1236). The RFC-4180 quoting itself is correct and is NOT the bug. The bug is introduced by the change: the `before` file has only the (correct) escapeField/toCsvRow helpers; the `after` adds the exportOrders function that funnels the attacker-influenced label through escapeField alone, so the formula-injection sink lands squarely in the new lines while the quoting logic stays visible as a precision decoy.",
+    "files": {
+      "src/export/csv.ts": {
+        "before": "const SPECIAL = /[\",\\n\\r]/;\n\nfunction escapeField(value: string): string {\n  if (!SPECIAL.test(value)) {\n    return value;\n  }\n  return `\"${value.replace(/\"/g, '\"\"')}\"`;\n}\n\nexport function toCsvRow(fields: string[]): string {\n  return fields.map(escapeField).join(\",\");\n}\n",
+        "after": "const SPECIAL = /[\",\\n\\r]/;\n\nfunction escapeField(value: string): string {\n  if (!SPECIAL.test(value)) {\n    return value;\n  }\n  return `\"${value.replace(/\"/g, '\"\"')}\"`;\n}\n\nexport function toCsvRow(fields: string[]): string {\n  return fields.map(escapeField).join(\",\");\n}\n\nexport interface OrderRecord {\n  id: number;\n  label: string;\n  amount: number;\n}\n\n// `label` is a free-text field supplied by end users when they create an order.\nexport function exportOrders(records: OrderRecord[]): string {\n  const header = toCsvRow([\"id\", \"label\", \"amount\"]);\n  const rows = records.map((r) =>\n    toCsvRow([String(r.id), r.label, r.amount.toFixed(2)])\n  );\n  return [header, ...rows].join(\"\\n\");\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "injection",
+        "file": "src/export/csv.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report's MAIN section (not an appendix) flags that exportOrders writes the user-supplied `label` into the CSV without neutralizing spreadsheet formula triggers, so a label beginning with =, +, -, or @ (escapeField does NOT quote it because it contains no comma/quote/newline) is emitted verbatim and becomes an executable formula when the file is opened in Excel/Google Sheets — i.e. CSV / formula / spreadsheet injection (CWE-1236). It must name the fix: prefix a single quote (or otherwise neutralize) when a string field starts with one of = + - @ (tab/CR acceptable too). Severity must be IMPORTANT or CRITICAL. FAIL if this is missing, only in an appendix, below IMPORTANT, dropped as pre-existing, or if the report instead claims the RFC-4180 quoting (the double-quote escaping / comma-and-newline wrapping in escapeField) is the defect — that quoting is correct."
+  },
+  "expected_behavior": [
+    "Bugs & Security agent flags the user-controlled `label` reaching the CSV as a formula-injection sink (CWE-1236)",
+    "Notes that escapeField only RFC-4180-quotes special chars, so =/+/-/@ values pass through verbatim and execute as formulas in a spreadsheet",
+    "Recommends prefixing a single quote (or equivalent neutralization) for fields starting with = + - @ (tab/CR)",
+    "Severity IMPORTANT or CRITICAL, in the main report"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim the RFC-4180 quote-doubling / comma-and-newline wrapping in escapeField is the bug (it is correct)",
+    "Does NOT require a proof-of-concept spreadsheet to flag it",
+    "Does NOT dismiss it because the value is only dangerous once opened in a spreadsheet client"
+  ]
+}

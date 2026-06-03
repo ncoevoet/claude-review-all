@@ -1,0 +1,43 @@
+{
+  "id": "64-python-bare-except-platform",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A SQLite-backed records store's capability-probe routine collapses three independent steps (load an optional FTS extension, then probe WAL journal mode, then probe foreign-keys enforcement) under ONE try that catches only sqlite3.OperationalError and passes. The first step's failure short-circuits the two remaining probes (so wal/foreign_keys silently report False), and on Python builds compiled without loadable-extension support con.enable_load_extension raises AttributeError, which escapes the narrow except and crashes the probe. The before-version wrapped each independent step in its own try/except with a log.warning, so one failure could not mask the others.",
+    "files": {
+      "src/data/records_store.py": {
+        "before": "import logging\nimport sqlite3\n\nlog = logging.getLogger(\"records.store\")\n\nFTS_EXTENSION = \"fts_ranker\"\n\n\ndef probe_capabilities(con: sqlite3.Connection) -> dict:\n    caps = {\"fts_ranker\": False, \"wal\": False, \"foreign_keys\": False}\n\n    try:\n        con.enable_load_extension(True)\n        con.load_extension(FTS_EXTENSION)\n        caps[\"fts_ranker\"] = True\n    except Exception as ex:\n        log.warning(\"optional FTS extension %s unavailable: %s\", FTS_EXTENSION, ex)\n\n    try:\n        mode = con.execute(\"PRAGMA journal_mode=WAL\").fetchone()[0]\n        caps[\"wal\"] = mode.lower() == \"wal\"\n    except sqlite3.OperationalError as ex:\n        log.warning(\"WAL journal mode probe failed: %s\", ex)\n\n    try:\n        con.execute(\"PRAGMA foreign_keys=ON\")\n        on = con.execute(\"PRAGMA foreign_keys\").fetchone()[0]\n        caps[\"foreign_keys\"] = bool(on)\n    except sqlite3.OperationalError as ex:\n        log.warning(\"foreign-keys probe failed: %s\", ex)\n\n    return caps\n",
+        "after": "import logging\nimport sqlite3\n\nlog = logging.getLogger(\"records.store\")\n\nFTS_EXTENSION = \"fts_ranker\"\n\n\ndef probe_capabilities(con: sqlite3.Connection) -> dict:\n    caps = {\"fts_ranker\": False, \"wal\": False, \"foreign_keys\": False}\n    try:\n        con.enable_load_extension(True)\n        con.load_extension(FTS_EXTENSION)\n        caps[\"fts_ranker\"] = True\n\n        mode = con.execute(\"PRAGMA journal_mode=WAL\").fetchone()[0]\n        caps[\"wal\"] = mode.lower() == \"wal\"\n\n        con.execute(\"PRAGMA foreign_keys=ON\")\n        on = con.execute(\"PRAGMA foreign_keys\").fetchone()[0]\n        caps[\"foreign_keys\"] = bool(on)\n    except sqlite3.OperationalError:\n        pass\n    return caps\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "unhandled-error",
+        "file": "src/data/records_store.py",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report's MAIN section (not an appendix, and not dismissed as pre-existing) flags that probe_capabilities in src/data/records_store.py wraps several INDEPENDENT steps under ONE try/except, so a failure in the first step (loading the optional FTS extension) prevents the later independent probes (WAL journal mode, foreign-keys) from running — the operator silently loses those diagnostics / gets a wrong capability map. Credit equally a report that instead (or also) flags that the except is too NARROW/wrong: enable_load_extension raises a non-OperationalError (e.g. AttributeError on Python builds compiled without loadable-extension support) that escapes `except sqlite3.OperationalError` and crashes the probe on those platforms. Either framing PASSES as long as it identifies that one try/except collapses or fails to cover the independent probes, AND the recommended fix is to give each independent step its OWN try/except (and log) so one failure does not mask the others. Severity must be IMPORTANT or CRITICAL. FAIL if the finding is absent, only in an appendix, dropped as pre-existing, below IMPORTANT, or merely notes the bare `pass` swallows the error without identifying that the independent probes are collapsed/uncovered."
+  },
+  "expected_behavior": [
+    "Bugs agent flags that one try/except collapses three independent probes so the first failure skips the rest",
+    "Notes the operator silently loses WAL / foreign-key diagnostics (wrong capability map)",
+    "Optionally notes enable_load_extension can raise AttributeError, which the narrow sqlite3.OperationalError except does not catch (crashes on extension-less Python builds)",
+    "Recommends a separate try/except per independent step, with logging",
+    "Severity IMPORTANT or CRITICAL",
+    "Verifier keeps the finding"
+  ],
+  "expected_not_behavior": [
+    "Does NOT treat catching only sqlite3.OperationalError as adequate coverage for all three steps",
+    "Does NOT claim the FTS extension load itself is the only problem while ignoring the skipped probes",
+    "Does NOT reduce the finding to a generic 'empty/silent except' nit that misses the collapsed independent probes",
+    "Does NOT demand the optional FTS extension be made mandatory"
+  ]
+}

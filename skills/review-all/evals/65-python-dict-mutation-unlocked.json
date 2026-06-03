@@ -1,0 +1,40 @@
+{
+  "id": "65-python-dict-mutation-unlocked",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "invalidate_all() was simplified to call _SESSIONS.clear() WITHOUT acquiring _LOCK, while get_session and put_session both read/mutate the module-level _SESSIONS dict under that same lock. Removing the guard means the clear is no longer serialized against concurrent get_session/put_session: the lock's mutual-exclusion contract is broken, so a clear can clobber state a concurrent writer just stored (lost/inconsistent state) and any compound clear-then-rebuild sequence is no longer atomic relative to other accessors. (Under CPython's GIL a single dict op is atomic so this rarely throws, but the synchronization invariant is still violated, and on free-threaded/no-GIL builds — or if a reader ever iterates the dict — it is an outright data race that can crash with 'dictionary changed size during iteration'.) Modified-file diff: the pre-bug `before` held _LOCK around the clear; the `after` removes that guard, introducing the unsynchronized mutation on the changed lines.",
+    "files": {
+      "src/auth/session_store.py": {
+        "before": "import threading\nimport time\n\n_LOCK = threading.Lock()\n_SESSIONS = {}\n_TTL_SECONDS = 1800\n\n\ndef get_session(token):\n    with _LOCK:\n        entry = _SESSIONS.get(token)\n        if entry is None:\n            return None\n        value, expires_at = entry\n        if time.monotonic() > expires_at:\n            del _SESSIONS[token]\n            return None\n        return value\n\n\ndef put_session(token, value):\n    with _LOCK:\n        _SESSIONS[token] = (value, time.monotonic() + _TTL_SECONDS)\n\n\ndef invalidate_all():\n    with _LOCK:\n        _SESSIONS.clear()\n",
+        "after": "import threading\nimport time\n\n_LOCK = threading.Lock()\n_SESSIONS = {}\n_TTL_SECONDS = 1800\n\n\ndef get_session(token):\n    with _LOCK:\n        entry = _SESSIONS.get(token)\n        if entry is None:\n            return None\n        value, expires_at = entry\n        if time.monotonic() > expires_at:\n            del _SESSIONS[token]\n            return None\n        return value\n\n\ndef put_session(token, value):\n    with _LOCK:\n        _SESSIONS[token] = (value, time.monotonic() + _TTL_SECONDS)\n\n\ndef invalidate_all():\n    _SESSIONS.clear()\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "race-condition",
+        "file": "src/auth/session_store.py",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the MAIN report (not an appendix) flags that invalidate_all() in src/auth/session_store.py mutates the shared module-level _SESSIONS dict via _SESSIONS.clear() WITHOUT holding _LOCK, while get_session and put_session read/mutate that same dict under _LOCK -> the clear is no longer synchronized/serialized against concurrent readers and writers (broken mutual-exclusion contract; e.g. clobbering state a writer just stored, lost/inconsistent state, non-atomic relative to other accessors — and a data race / possible 'dictionary changed size during iteration' on free-threaded builds or if the dict is iterated), and names the fix as acquiring the SAME _LOCK around the clear (wrap it in `with _LOCK:`). Severity must be IMPORTANT or CRITICAL. A report that correctly notes individual dict operations are atomic under the GIL but still flags the broken locking invariant (unsynchronized shared-state mutation / unsafe under free-threading) PASSES — do NOT require the report to assert a crash or a mid-iteration failure as the mechanism. FAIL if the unlocked mutation is absent, graded below IMPORTANT, surfaced only as a minor/appendix note, or dismissed as pre-existing. Do NOT require the exact words 'data race'."
+  },
+  "expected_behavior": [
+    "Bugs/Security agent flags invalidate_all() calling _SESSIONS.clear() outside _LOCK as an unsynchronized mutation of shared state that the lock-guarded get_session/put_session protect, breaking the locking invariant",
+    "Names the fix as taking the same _LOCK (wrap the clear in `with _LOCK:`)",
+    "Reports it at IMPORTANT or CRITICAL severity in the main report"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim get_session/put_session are themselves unsynchronized (they correctly hold _LOCK)",
+    "Does NOT demand a different locking primitive (RLock/ConcurrentDict) when reusing the existing _LOCK is the minimal fix",
+    "Does NOT drop the finding as pre-existing",
+    "Does NOT require asserting a runtime crash or mid-iteration failure as the mechanism (a GIL-aware report that flags the broken locking invariant without claiming a crash is correct)"
+  ]
+}

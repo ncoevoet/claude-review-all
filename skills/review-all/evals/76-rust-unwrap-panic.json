@@ -1,0 +1,44 @@
+{
+  "id": "76-rust-unwrap-panic",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A job-queue Worker::dispatch is simplified to .unwrap()/.expect() on two reachable fallible operations: it parses the caller-supplied raw_count string into u32 with raw_count.parse().unwrap() (a malformed/non-numeric or out-of-range payload yields Err and panics the worker thread), and looks up the handler with self.handlers.get(task).expect(\"handler must exist\") (an unknown/unregistered task yields None and panics). Both inputs are external/fallible — raw_count and task come from the dispatched job — so a bad payload or unknown task aborts the thread instead of being reported. The function already returns Result<u32, DispatchError> with BadPayload and UnknownTask variants, so the contract is to return an error, not panic. Modified-file diff: the pre-bug `before` mapped the parse error to DispatchError::BadPayload and the missing key to DispatchError::UnknownTask and propagated both with `?`; the `after` replaces both with unwrap/expect on the changed lines, introducing the panic-on-reachable-Err/None.",
+    "files": {
+      "src/worker/dispatch.rs": {
+        "before": "use std::collections::HashMap;\n\n#[derive(Debug)]\npub enum DispatchError {\n    BadPayload(String),\n    UnknownTask(String),\n}\n\npub struct Worker {\n    handlers: HashMap<String, fn(u32) -> u32>,\n}\n\nimpl Worker {\n    pub fn dispatch(&self, task: &str, raw_count: &str) -> Result<u32, DispatchError> {\n        let count: u32 = raw_count\n            .parse()\n            .map_err(|_| DispatchError::BadPayload(raw_count.to_string()))?;\n        let handler = self\n            .handlers\n            .get(task)\n            .ok_or_else(|| DispatchError::UnknownTask(task.to_string()))?;\n        Ok(handler(count))\n    }\n}\n",
+        "after": "use std::collections::HashMap;\n\n#[derive(Debug)]\npub enum DispatchError {\n    BadPayload(String),\n    UnknownTask(String),\n}\n\npub struct Worker {\n    handlers: HashMap<String, fn(u32) -> u32>,\n}\n\nimpl Worker {\n    pub fn dispatch(&self, task: &str, raw_count: &str) -> Result<u32, DispatchError> {\n        let count: u32 = raw_count.parse().unwrap();\n        let handler = self.handlers.get(task).expect(\"handler must exist\");\n        Ok(handler(count))\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "unhandled-error",
+        "file": "src/worker/dispatch.rs",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report's MAIN section (not an appendix, and not dismissed/dropped as pre-existing) flags that Worker::dispatch in src/worker/dispatch.rs calls .unwrap()/.expect() on a REACHABLE Err/None from external/fallible input, so a malformed or unexpected job panics the worker thread at runtime instead of returning an error. It must identify AT LEAST ONE of the two specific call sites: (a) raw_count.parse().unwrap() panics when the caller-supplied raw_count is not a valid u32 (non-numeric, empty, negative, or out-of-range), or (b) self.handlers.get(task).expect(\"handler must exist\") panics when task is not a registered handler (the Option is None). Credit a report that flags both. The recommended fix must be to HANDLE the Result/Option rather than unwrap — i.e. propagate with `?`, `match`, `if let`, `ok_or(_else)`, `map_err`, `unwrap_or`/`unwrap_or_else`, or otherwise return a DispatchError (the function already returns Result<u32, DispatchError> with BadPayload/UnknownTask variants) instead of panicking. Severity must be IMPORTANT or CRITICAL. FAIL if the unwrap/expect panic is absent, graded below IMPORTANT, surfaced only in an appendix, dropped as pre-existing, or if the report merely restates that the code uses unwrap/expect WITHOUT identifying that the Err/None branch is reachable from external input and that the fix is to handle it and return an error. Do NOT require the exact variant names or the word 'panic' verbatim, but the runtime-crash-on-bad-input mechanism must be conveyed."
+  },
+  "expected_behavior": [
+    "Bugs agent flags raw_count.parse().unwrap() as panicking on a non-numeric/out-of-range job payload (reachable Err)",
+    "Flags self.handlers.get(task).expect(...) as panicking when the task is not a registered handler (reachable None)",
+    "Notes this crashes the worker thread at runtime on malformed/unexpected input instead of returning an error",
+    "Recommends handling the Result/Option (?, match, if let, ok_or_else/map_err, unwrap_or) and returning a DispatchError",
+    "Severity IMPORTANT or CRITICAL in the main report",
+    "Verifier keeps the finding"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim handler(count) itself is the defect (the panic is in the unwrap/expect, not the handler call)",
+    "Does NOT treat the existing Result<u32, DispatchError> return type as already handling the parse/lookup failures (the unwrap/expect bypass it)",
+    "Does NOT demand removing the DispatchError enum or changing the function to panic deliberately",
+    "Does NOT reduce the finding to a style/lint nit ('avoid unwrap') that omits the reachable-Err/None runtime crash and the handle-and-return-error fix",
+    "Does NOT drop the finding as pre-existing"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "id": "73-go-err-shadowing",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "In a metrics Flusher, Flush() declares `err` from a pre-loop `split(samples, f.maxBatch)` call, then sends each batch in a `for` loop. The change rewrites the loop's send line from `err = f.sink.Send(ctx, batch)` to `err := f.sink.Send(ctx, batch)`. Because `:=` inside the loop body (a new block scope) DECLARES a fresh, loop-local `err` that shadows the function-scope `err`, the function-scope `err` is never updated by Send. A Send failure still `break`s the loop, but the post-loop `if err != nil` checks the OUTER `err` — the (nil) result of split — so it never fires: Flush returns `(sent, nil)` and the send error is silently dropped, making the caller believe the flush fully succeeded. Fix: use `=` (assign the existing outer err) instead of `:=`, or return/wrap the error inside the loop body where the local err is in scope. Single-file modified fixture (before=correct `=`, after=buggy `:=`); materializes to a tight 1-line staged diff at the exact buggy line.",
+    "files": {
+      "internal/metrics/flusher.go": {
+        "before": "package metrics\n\nimport (\n\t\"context\"\n\t\"fmt\"\n)\n\n// Sample is a single recorded metric point.\ntype Sample struct {\n\tName  string\n\tValue float64\n}\n\n// Sink delivers a batch of samples to a downstream collector.\ntype Sink interface {\n\tSend(ctx context.Context, batch []Sample) error\n}\n\n// Flusher ships pending samples to a Sink in fixed-size batches.\ntype Flusher struct {\n\tsink     Sink\n\tmaxBatch int\n}\n\n// Flush sends every sample in batches and returns the number of samples\n// successfully sent. If a batch send fails it stops and returns that error so\n// the caller can retry the remainder.\nfunc (f *Flusher) Flush(ctx context.Context, samples []Sample) (int, error) {\n\tbatches, err := split(samples, f.maxBatch)\n\tif err != nil {\n\t\treturn 0, fmt.Errorf(\"split samples: %w\", err)\n\t}\n\n\tsent := 0\n\tfor _, batch := range batches {\n\t\terr = f.sink.Send(ctx, batch)\n\t\tif err != nil {\n\t\t\tbreak\n\t\t}\n\t\tsent += len(batch)\n\t}\n\tif err != nil {\n\t\treturn sent, fmt.Errorf(\"flush aborted after %d samples: %w\", sent, err)\n\t}\n\treturn sent, nil\n}\n\nfunc split(samples []Sample, size int) ([][]Sample, error) {\n\tif size <= 0 {\n\t\treturn nil, fmt.Errorf(\"batch size must be positive, got %d\", size)\n\t}\n\tvar batches [][]Sample\n\tfor start := 0; start < len(samples); start += size {\n\t\tend := start + size\n\t\tif end > len(samples) {\n\t\t\tend = len(samples)\n\t\t}\n\t\tbatches = append(batches, samples[start:end])\n\t}\n\treturn batches, nil\n}\n",
+        "after": "package metrics\n\nimport (\n\t\"context\"\n\t\"fmt\"\n)\n\n// Sample is a single recorded metric point.\ntype Sample struct {\n\tName  string\n\tValue float64\n}\n\n// Sink delivers a batch of samples to a downstream collector.\ntype Sink interface {\n\tSend(ctx context.Context, batch []Sample) error\n}\n\n// Flusher ships pending samples to a Sink in fixed-size batches.\ntype Flusher struct {\n\tsink     Sink\n\tmaxBatch int\n}\n\n// Flush sends every sample in batches and returns the number of samples\n// successfully sent. If a batch send fails it stops and returns that error so\n// the caller can retry the remainder.\nfunc (f *Flusher) Flush(ctx context.Context, samples []Sample) (int, error) {\n\tbatches, err := split(samples, f.maxBatch)\n\tif err != nil {\n\t\treturn 0, fmt.Errorf(\"split samples: %w\", err)\n\t}\n\n\tsent := 0\n\tfor _, batch := range batches {\n\t\terr := f.sink.Send(ctx, batch)\n\t\tif err != nil {\n\t\t\tbreak\n\t\t}\n\t\tsent += len(batch)\n\t}\n\tif err != nil {\n\t\treturn sent, fmt.Errorf(\"flush aborted after %d samples: %w\", sent, err)\n\t}\n\treturn sent, nil\n}\n\nfunc split(samples []Sample, size int) ([][]Sample, error) {\n\tif size <= 0 {\n\t\treturn nil, fmt.Errorf(\"batch size must be positive, got %d\", size)\n\t}\n\tvar batches [][]Sample\n\tfor start := 0; start < len(samples); start += size {\n\t\tend := start + size\n\t\tif end > len(samples) {\n\t\t\tend = len(samples)\n\t\t}\n\t\tbatches = append(batches, samples[start:end])\n\t}\n\treturn batches, nil\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "unhandled-error",
+        "file": "internal/metrics/flusher.go",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report's MAIN section (not an appendix) contains a finding, at IMPORTANT severity (or higher), for internal/metrics/flusher.go, that identifies the variable-shadowing dead-error-check: inside Flush()'s `for` loop the send line uses `err := f.sink.Send(ctx, batch)`, and because `:=` in the loop body declares a NEW loop-scoped `err` (shadowing the function-scope `err` declared earlier by `split(...)`), the function-scope `err` is never updated by Send. As a result the post-loop `if err != nil` checks the stale outer `err` (the nil result of split), so on a Send failure the loop `break`s but Flush still returns `(sent, nil)` — the send error is silently dropped and the caller wrongly sees success. The finding MUST name a correct fix: change `:=` to `=` so the existing outer `err` is assigned (making the post-loop check live), OR handle/return the error inside the loop body where the local `err` is in scope (e.g. `return sent, fmt.Errorf(...)` instead of `break`). FAIL if this bug is absent, reported below IMPORTANT severity, appendix-only, dropped or dismissed as pre-existing or merely stylistic, or misdiagnosed (e.g. described only as an unused-variable/lint nit, claimed to be a harmless shadow with no behavioral effect, claimed the error is still returned, or the proposed 'fix' does not actually make the outer error observable to the caller)."
+  },
+  "expected_behavior": [
+    "Bugs agent flags that `err := f.sink.Send(ctx, batch)` inside the for loop declares a new loop-scoped `err` (`:=`) that shadows the function-scope `err` from `split(...)`",
+    "Explains the post-loop `if err != nil` checks the stale outer `err`, so a Send failure breaks the loop but Flush returns `(sent, nil)` and the error is silently dropped",
+    "Recommends a correct fix: use `=` to assign the existing outer `err`, or return/wrap the error inside the loop body",
+    "Severity IMPORTANT or higher (a real failure is silently swallowed on a delivery path)",
+    "Finding is in the main report and cites internal/metrics/flusher.go"
+  ],
+  "expected_not_behavior": [
+    "Does NOT reduce this to a style/lint nit about a redundant or unused variable with no behavioral impact",
+    "Does NOT claim the send error is still propagated to the caller or that the post-loop check works",
+    "Does NOT dismiss it as pre-existing (the `:=` shadow is introduced by this diff, which changed `=` to `:=`)"
+  ]
+}

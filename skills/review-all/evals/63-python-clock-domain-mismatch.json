@@ -1,0 +1,41 @@
+{
+  "id": "63-python-clock-domain-mismatch",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A session/token TTL cache stores an entry's expiry with time.time() (wall clock, ~1.7e9) in put(), but ttl_remaining() — used by get() to decide expiry — was changed to subtract time.monotonic() (seconds since boot, small). The two clock domains never match, so ttl_remaining returns a garbage ~1.7e9 value and entries effectively never expire (the TTL metric is silently corrupted). The fix is to use the same clock domain on both sides.",
+    "files": {
+      "src/cache/session_cache.py": {
+        "before": "import time\nfrom dataclasses import dataclass\n\n\n@dataclass\nclass CacheEntry:\n    value: object\n    expires_at: float\n\n\nclass SessionCache:\n    def __init__(self, ttl_seconds: float) -> None:\n        self._ttl = ttl_seconds\n        self._entries: dict[str, CacheEntry] = {}\n\n    def put(self, key: str, value: object) -> None:\n        self._entries[key] = CacheEntry(value, time.time() + self._ttl)\n\n    def get(self, key: str) -> object | None:\n        entry = self._entries.get(key)\n        if entry is None:\n            return None\n        if self.ttl_remaining(key) <= 0:\n            del self._entries[key]\n            return None\n        return entry.value\n\n    def ttl_remaining(self, key: str) -> float:\n        entry = self._entries.get(key)\n        if entry is None:\n            return 0.0\n        return entry.expires_at - time.time()\n",
+        "after": "import time\nfrom dataclasses import dataclass\n\n\n@dataclass\nclass CacheEntry:\n    value: object\n    expires_at: float\n\n\nclass SessionCache:\n    def __init__(self, ttl_seconds: float) -> None:\n        self._ttl = ttl_seconds\n        self._entries: dict[str, CacheEntry] = {}\n\n    def put(self, key: str, value: object) -> None:\n        self._entries[key] = CacheEntry(value, time.time() + self._ttl)\n\n    def get(self, key: str) -> object | None:\n        entry = self._entries.get(key)\n        if entry is None:\n            return None\n        if self.ttl_remaining(key) <= 0:\n            del self._entries[key]\n            return None\n        return entry.value\n\n    def ttl_remaining(self, key: str) -> float:\n        entry = self._entries.get(key)\n        if entry is None:\n            return 0.0\n        return entry.expires_at - time.monotonic()\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/cache/session_cache.py",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report's MAIN section (not an appendix) flags that ttl_remaining computes `entry.expires_at - time.monotonic()` while expires_at was stored from `time.time()` in put(), i.e. it mixes two different clock domains (wall-clock epoch vs seconds-since-boot). The finding must note the consequence: the subtraction yields a garbage value (a huge ~1.7e9 number), so the TTL/remaining-time is wrong and entries effectively never expire (or expire incorrectly). The fix must be to use the SAME clock on both sides (use time.time() in ttl_remaining to match put(), or switch both store and read to time.monotonic()). Acceptable severity: IMPORTANT or CRITICAL. FAIL if this clock-domain mismatch is absent, only in an appendix, below IMPORTANT, dropped as pre-existing, or if the report merely complains about time.monotonic()/time.time() generically without identifying that the two sides use different clocks."
+  },
+  "expected_behavior": [
+    "Bugs agent flags that ttl_remaining subtracts time.monotonic() from an expires_at stored via time.time(), mixing wall-clock and monotonic clock domains",
+    "Notes the result is a garbage (~1.7e9) value so entries never expire / the TTL metric is corrupted",
+    "Recommends using the same clock domain on both the store (put) and read (ttl_remaining) sides",
+    "Severity IMPORTANT or CRITICAL",
+    "Finding appears in the main report, not an appendix"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim time.monotonic() is wrong in isolation (it is the cross-domain mix with time.time() that matters)",
+    "Does NOT require a specific failing numeric example to flag it",
+    "Does NOT flag the unchanged put()/get() logic as a separate primary bug"
+  ]
+}

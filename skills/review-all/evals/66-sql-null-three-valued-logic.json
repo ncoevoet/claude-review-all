@@ -1,0 +1,44 @@
+{
+  "id": "66-sql-null-three-valued-logic",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A job-queue data-access function is changed to filter active jobs with `WHERE is_paused = 0`. The schema (in an unchanged migration) declares is_paused as a nullable INTEGER with no default, so jobs created before the pause feature — and any never explicitly paused — have is_paused = NULL. In SQL three-valued logic `NULL = 0` evaluates to UNKNOWN, so the WHERE clause silently drops every NULL row, hiding active jobs that should be returned. The correct predicate is COALESCE(is_paused, 0) = 0 (or `is_paused IS NOT 1` / `is_paused IS DISTINCT FROM 1`). The migration file is provided unchanged as schema context; the diff comes solely from src/queue/job_store.py.",
+    "files": {
+      "src/queue/job_store.py": {
+        "before": "from typing import Any\n\n\nclass JobStore:\n    \"\"\"Data access for the background job queue.\"\"\"\n\n    def __init__(self, conn: Any) -> None:\n        self._conn = conn\n\n    def list_active_jobs(self, limit: int = 100) -> list[dict[str, Any]]:\n        \"\"\"Return jobs that are eligible to run, oldest first.\"\"\"\n        cur = self._conn.execute(\n            \"\"\"\n            SELECT id, queue, payload, is_paused\n            FROM jobs\n            WHERE status = 'pending'\n            ORDER BY created_at ASC\n            LIMIT ?\n            \"\"\",\n            (limit,),\n        )\n        cols = [c[0] for c in cur.description]\n        return [dict(zip(cols, row)) for row in cur.fetchall()]\n",
+        "after": "from typing import Any\n\n\nclass JobStore:\n    \"\"\"Data access for the background job queue.\"\"\"\n\n    def __init__(self, conn: Any) -> None:\n        self._conn = conn\n\n    def list_active_jobs(self, limit: int = 100) -> list[dict[str, Any]]:\n        \"\"\"Return jobs that are eligible to run, oldest first.\n\n        Skips jobs that an operator has paused.\n        \"\"\"\n        cur = self._conn.execute(\n            \"\"\"\n            SELECT id, queue, payload, is_paused\n            FROM jobs\n            WHERE status = 'pending'\n              AND is_paused = 0\n            ORDER BY created_at ASC\n            LIMIT ?\n            \"\"\",\n            (limit,),\n        )\n        cols = [c[0] for c in cur.description]\n        return [dict(zip(cols, row)) for row in cur.fetchall()]\n"
+      },
+      "db/migrations/0001_jobs.sql": {
+        "before": "CREATE TABLE jobs (\n    id          INTEGER PRIMARY KEY,\n    queue       TEXT NOT NULL,\n    payload     TEXT NOT NULL,\n    status      TEXT NOT NULL DEFAULT 'pending',\n    is_paused   INTEGER,\n    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\n",
+        "after": "CREATE TABLE jobs (\n    id          INTEGER PRIMARY KEY,\n    queue       TEXT NOT NULL,\n    payload     TEXT NOT NULL,\n    status      TEXT NOT NULL DEFAULT 'pending',\n    is_paused   INTEGER,\n    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/queue/job_store.py",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report's MAIN section (not an appendix) flags that the new `AND is_paused = 0` filter in `list_active_jobs` (src/queue/job_store.py) silently drops rows where is_paused IS NULL — because in SQL three-valued logic `NULL = 0` is UNKNOWN, not TRUE — so jobs with a NULL is_paused (the column is nullable / has no default per the migration) are wrongly excluded from the active-job result, at IMPORTANT or CRITICAL severity, and recommends a NULL-safe predicate such as `COALESCE(is_paused, 0) = 0` (or `is_paused IS NOT 1` / `is_paused IS DISTINCT FROM 1`, or backfilling/defaulting the column to 0). FAIL if the finding is absent, below IMPORTANT, appearing only in an appendix, dropped as pre-existing, or if it merely flags the literal `= 0` as a style/parameterization nit without identifying the NULL-exclusion behavior."
+  },
+  "expected_behavior": [
+    "Bugs agent cross-references the migration, notes is_paused is nullable with no default, and flags that WHERE is_paused = 0 excludes NULL rows via three-valued logic",
+    "Recommends COALESCE(is_paused, 0) = 0 or an equivalent NULL-safe predicate",
+    "Finding is in the main report at IMPORTANT or CRITICAL severity"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the unchanged migration file as the change being reviewed",
+    "Does NOT report the issue only as a SQL-style or parameterization nit while missing the silent NULL-row exclusion",
+    "Does NOT claim SQL injection (the query is parameterized)",
+    "Does NOT dismiss the finding as pre-existing merely because the nullable is_paused column is declared in an unchanged migration file — the regression is the newly added `AND is_paused = 0` predicate"
+  ]
+}

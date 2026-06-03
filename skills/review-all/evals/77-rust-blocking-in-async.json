@@ -1,0 +1,42 @@
+{
+  "id": "77-rust-blocking-in-async",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "An async worker task on a Tokio runtime is refactored from non-blocking primitives to blocking std calls: the retry backoff switches from tokio::time::sleep(...).await to std::thread::sleep(...), and the per-job config read switches from tokio::fs::read(...).await to a synchronous std::fs::read(...). Both run directly on the async runtime worker thread inside an async fn, so they block the executor worker and starve every other task scheduled on that worker (head-of-line stall, throughput collapse under load). Fix: use the async equivalents (tokio::time::sleep, tokio::fs) or offload the blocking work to tokio::task::spawn_blocking. Generic job-queue/worker-pool domain, fully anonymized. The before-code is correct async; the after-code (changed lines) introduces the two blocking calls, so the bug is real, traceable, and not pre-existing.",
+    "files": {
+      "src/worker/job_runner.rs": {
+        "before": "use std::path::PathBuf;\nuse std::time::Duration;\n\nuse tokio::sync::mpsc::Receiver;\n\npub struct Job {\n    pub id: u64,\n    pub config_path: PathBuf,\n}\n\npub struct JobRunner {\n    rx: Receiver<Job>,\n    max_retries: u32,\n}\n\nimpl JobRunner {\n    pub fn new(rx: Receiver<Job>, max_retries: u32) -> Self {\n        Self { rx, max_retries }\n    }\n\n    pub async fn run(mut self) {\n        while let Some(job) = self.rx.recv().await {\n            let mut attempt = 0;\n            loop {\n                match self.process(&job).await {\n                    Ok(()) => break,\n                    Err(_) if attempt < self.max_retries => {\n                        attempt += 1;\n                        let backoff = Duration::from_millis(200 * attempt as u64);\n                        tokio::time::sleep(backoff).await;\n                    }\n                    Err(e) => {\n                        tracing::error!(job = job.id, error = %e, \"job failed\");\n                        break;\n                    }\n                }\n            }\n        }\n    }\n\n    async fn process(&self, job: &Job) -> std::io::Result<()> {\n        let raw = tokio::fs::read(&job.config_path).await?;\n        tracing::info!(job = job.id, bytes = raw.len(), \"loaded job config\");\n        Ok(())\n    }\n}\n",
+        "after": "use std::path::PathBuf;\nuse std::time::Duration;\n\nuse tokio::sync::mpsc::Receiver;\n\npub struct Job {\n    pub id: u64,\n    pub config_path: PathBuf,\n}\n\npub struct JobRunner {\n    rx: Receiver<Job>,\n    max_retries: u32,\n}\n\nimpl JobRunner {\n    pub fn new(rx: Receiver<Job>, max_retries: u32) -> Self {\n        Self { rx, max_retries }\n    }\n\n    pub async fn run(mut self) {\n        while let Some(job) = self.rx.recv().await {\n            let mut attempt = 0;\n            loop {\n                match self.process(&job).await {\n                    Ok(()) => break,\n                    Err(_) if attempt < self.max_retries => {\n                        attempt += 1;\n                        let backoff = Duration::from_millis(200 * attempt as u64);\n                        std::thread::sleep(backoff);\n                    }\n                    Err(e) => {\n                        tracing::error!(job = job.id, error = %e, \"job failed\");\n                        break;\n                    }\n                }\n            }\n        }\n    }\n\n    async fn process(&self, job: &Job) -> std::io::Result<()> {\n        let raw = std::fs::read(&job.config_path)?;\n        tracing::info!(job = job.id, bytes = raw.len(), \"loaded job config\");\n        Ok(())\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "perf",
+        "file": "src/worker/job_runner.rs",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report, in its MAIN body (not an appendix/notes/low-confidence/dropped-findings section), flags that JobRunner in src/worker/job_runner.rs performs a BLOCKING operation directly on the async runtime (Tokio) worker thread inside an `async fn` — specifically std::thread::sleep(backoff) in the retry path of run() AND/OR the synchronous std::fs::read(&job.config_path) in process() — which blocks the executor worker and stalls/starves other tasks scheduled on that runtime (head-of-line blocking, throughput collapse), AND names the correct fix: use the async equivalents (tokio::time::sleep(...).await for the backoff, tokio::fs::read(...).await for the file read) or offload the blocking work to tokio::task::spawn_blocking. Flagging at least one of the two blocking calls with the correct mechanism and fix is sufficient to PASS. Severity must be IMPORTANT or CRITICAL. FAIL if the issue is absent, rated below IMPORTANT, surfaced only in an appendix/lower-confidence/dropped-findings section, dismissed as pre-existing, or if the report only objects on stylistic/idiomatic grounds (e.g. 'prefer async I/O' with no mention that the blocking call stalls the executor / starves other tasks) without identifying the executor-blocking mechanism. Do NOT require the report to flag both calls; either one, correctly diagnosed, passes."
+  },
+  "expected_behavior": [
+    "Performance/concurrency agent flags that std::thread::sleep(backoff) in JobRunner::run() blocks the Tokio runtime worker thread (an async fn must not block the executor)",
+    "And/or flags the synchronous std::fs::read in process() as a blocking I/O call on the async runtime that starves other tasks",
+    "Names the executor-starvation / head-of-line-blocking mechanism, not merely an idiomatic preference",
+    "Recommends tokio::time::sleep(...).await, tokio::fs::read(...).await, or offloading to tokio::task::spawn_blocking",
+    "Identifies the bug in src/worker/job_runner.rs at IMPORTANT or CRITICAL severity in the main report"
+  ],
+  "expected_not_behavior": [
+    "Does NOT dismiss the blocking calls as pre-existing or relegate them to an appendix/low-confidence section",
+    "Does NOT rate the executor-blocking issue below IMPORTANT",
+    "Does NOT reduce the finding to a pure style nit ('prefer async') without naming the executor-stall / task-starvation consequence",
+    "Does NOT misattribute the stall to the retry loop logic, the mpsc channel, or the backoff formula (the math and control flow are fine; the defect is the blocking call on the async worker)"
+  ]
+}

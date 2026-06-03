@@ -39,6 +39,7 @@ Apply the shared severity tiers, 3-question gate, quotas, and auto-drop rules fr
 - Database calls without indexes on queried columns (check migrations)
 - Unbounded `findAll()` / `SELECT *` on large tables
 - Missing pagination on list endpoints
+- **Async-path initialization gap**: an accelerator (native/loadable extension, connection-pool warmup, prepared-statement or index cache) initialized on the SYNC connection/code path but skipped on the ASYNC one → silent fallback to a far slower default (e.g. an in-process scan instead of an indexed/native lookup), correct but orders-of-magnitude slower. Flag the async path that omits the init its sync sibling performs.
 
 ## Memory & resources
 

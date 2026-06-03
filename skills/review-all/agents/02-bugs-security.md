@@ -19,6 +19,10 @@ Apply shared severity tiers, 3-question gate, and auto-drop rules from `_shared.
 - Resource leaks: unclosed streams/handles; for JDBC/IO, `Connection`/`Statement`/`ResultSet`/file handles opened outside try-with-resources (or without a `finally`) leak on early return or exception
 - Locale-dependent string ops: `toLowerCase()`/`toUpperCase()`/`format()` without an explicit `Locale` (e.g. `Locale.ROOT`) when the result is used as a key, compared, or persisted — breaks under locales like Turkish
 - Silent truncation: a value written to a fixed-width column/field without a length check (consult the schema/migration) → data loss or insert failure
+- SQL three-valued NULL logic: a `WHERE col = <value>` (or `!=`) filter on a **nullable** column silently drops NULL rows, since `NULL = x` is UNKNOWN. Flag when NULL should count as a real value (fix: `COALESCE(col, default)`); do not flag when excluding NULL is clearly intended.
+- Clock-domain mismatch: a timestamp stored with a **wall clock** (`time.time()`, `System.currentTimeMillis()`, `Date.now()`) later combined in one expression with a **monotonic** clock (`time.monotonic()`, `System.nanoTime()`, `performance.now()`), or vice-versa → garbage age/elapsed value. Flag only when the two domains are MIXED in one computation — consistent single-domain use is correct.
+- Name-binding traps (Python): a function-local `from m import x` / `import x` / assignment binds `x` as local for the **entire** function, so any use of `x` on an *earlier* branch raises `UnboundLocalError`. Flag a local import/binding that shadows a module-level name used elsewhere in the same function.
+- Referential-integrity / cascade gaps: deleting a parent row (or key) without also removing or NULLing child rows / a derived index that reference it, where no `ON DELETE CASCADE` exists → orphaned, still-queryable rows. Flag the missing child cleanup in the same transaction.
 
 ## Concurrency & thread-safety
 
@@ -29,6 +33,8 @@ When changed code shares mutable state across threads (async tasks, executors, r
 - **Blocking call under a lock**: remote/IO/`sleep` inside a `synchronized` block serializes all callers → contention/stall. Hoist it out of the critical section.
 - **Swallowed `InterruptedException`**: a catch that neither re-interrupts (`Thread.currentThread().interrupt()`) nor exits the loop → lost cancellation; the thread becomes uninterruptible.
 - **Collision-prone IDs**: identifiers built from a timestamp plus a random suffix are not unique under concurrency → duplicate-key/data loss. Prefer an atomic sequence or UUID.
+- **Inconsistent lock discipline**: a shared map/dict/collection read and written under a lock in most places but mutated (`clear()`, `pop`, put) on one path **without** that lock → race. Applies in any language (Java `synchronized`, Python `threading.Lock` over a module dict, etc.). Flag the unguarded mutation; do not flag a single GIL-/runtime-atomic op the code documents as intentionally lock-free.
+- **Stale async response (overlapping loads)**: a handler fires an async load on repeated user actions where a slower earlier request can resolve *after* a newer one and overwrite fresher state. Flag only when there is NO generation/request-id (or cancellation) guard checked after the `await` — correct generation-guarded code is not a finding.
 
 ## Security (OWASP Top 10)
 

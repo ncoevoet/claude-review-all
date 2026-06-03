@@ -1,0 +1,39 @@
+{
+  "id": "79-go-goroutine-cancellation-correct",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Precision counter-case (Go). A job-queue worker Pool is reworked from a synchronous Run(ctx, []Job) into a concurrent pool: Run(ctx, <-chan Job) now launches `size` worker goroutines, each running `for { select { case <-ctx.Done(): return; case job, ok := <-jobs: if !ok { return }; p.handler(ctx, job) } }`, then `wg.Wait()`s for every worker to exit. Each goroutine ALWAYS terminates — it returns when the context is cancelled (ctx.Done() closes) or when the jobs channel is closed (ok == false) — so there is no goroutine/resource leak. The workers do no blocking channel send (results go through the injected handler, not a second channel), so they can never deadlock-and-leak; wg.Add(size) precedes the launch and Run does not return until all workers have exited. A naive reviewer who pattern-matches on `go func() { ... <-chan ... }` might wrongly call this a goroutine leak; it is correct, idiomatic cancellable Go. Modified-file diff: `before` is the simpler synchronous loop (no goroutines); `after` introduces the worker goroutines with proper ctx.Done()/channel-close cancellation, so the diff is non-empty and the added goroutine is exactly what must NOT be flagged.",
+    "files": {
+      "internal/worker/pool.go": {
+        "before": "package worker\n\nimport \"context\"\n\ntype Handler func(ctx context.Context, job Job)\n\ntype Job struct {\n\tID      string\n\tPayload []byte\n}\n\ntype Pool struct {\n\thandler Handler\n}\n\nfunc NewPool(handler Handler) *Pool {\n\treturn &Pool{handler: handler}\n}\n\nfunc (p *Pool) Run(ctx context.Context, jobs []Job) {\n\tfor _, job := range jobs {\n\t\tif ctx.Err() != nil {\n\t\t\treturn\n\t\t}\n\t\tp.handler(ctx, job)\n\t}\n}\n",
+        "after": "package worker\n\nimport (\n\t\"context\"\n\t\"sync\"\n)\n\ntype Handler func(ctx context.Context, job Job)\n\ntype Job struct {\n\tID      string\n\tPayload []byte\n}\n\ntype Pool struct {\n\thandler Handler\n\tsize    int\n}\n\nfunc NewPool(handler Handler, size int) *Pool {\n\tif size < 1 {\n\t\tsize = 1\n\t}\n\treturn &Pool{handler: handler, size: size}\n}\n\n// Run launches size worker goroutines that drain jobs until the channel is\n// closed or ctx is cancelled, then waits for every worker to exit.\nfunc (p *Pool) Run(ctx context.Context, jobs <-chan Job) {\n\tvar wg sync.WaitGroup\n\twg.Add(p.size)\n\tfor i := 0; i < p.size; i++ {\n\t\tgo func() {\n\t\t\tdefer wg.Done()\n\t\t\tfor {\n\t\t\t\tselect {\n\t\t\t\tcase <-ctx.Done():\n\t\t\t\t\treturn\n\t\t\t\tcase job, ok := <-jobs:\n\t\t\t\t\tif !ok {\n\t\t\t\t\t\treturn\n\t\t\t\t\t}\n\t\t\t\t\tp.handler(ctx, job)\n\t\t\t\t}\n\t\t\t}\n\t\t}()\n\t}\n\twg.Wait()\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "resource-leak",
+        "file": "internal/worker/pool.go"
+      }
+    ],
+    "max_critical": 0
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "This Go file is CORRECT — the worker goroutines have proper cancellation and there is NO goroutine or resource leak. In `(*Pool).Run`, each of the `size` worker goroutines runs `for { select { case <-ctx.Done(): return; case job, ok := <-jobs: if !ok { return }; p.handler(ctx, job) } }`. Every worker therefore ALWAYS exits: it returns when the context is cancelled (the `ctx.Done()` channel closes) and it returns when the `jobs` channel is closed (`ok == false`). The workers perform no blocking channel send (results flow through the injected `handler`, not a second channel), so they cannot deadlock-and-leak; `wg.Add(p.size)` is called before the goroutines are launched, each does `defer wg.Done()`, and `Run` blocks on `wg.Wait()` until all workers have exited, so no goroutine is left detached/orphaned beyond the call. This is idiomatic, leak-free cancellable Go. PASS if the report does NOT flag any goroutine-leak / resource-leak / \"goroutine never exits\" / \"goroutine outlives its context\" / leaked-worker / unbounded-goroutine-growth defect against internal/worker/pool.go. A non-leak observation kept at SUGGESTED/QUESTION severity — e.g. that buffered jobs are dropped when ctx is cancelled (which is correct cancellation behaviour), that the injected handler ought to honour ctx, that errors from handler are not surfaced, or naming/doc nits — is acceptable and does NOT cause a FAIL. FAIL if the report claims a worker goroutine can leak / never terminates / is not cancellable, claims the goroutines accumulate or are unbounded, claims the select-loop blocks forever, or recommends adding context/done-channel cancellation as if it were missing (it is already present) — any of those is a false positive on this precision case."
+  },
+  "expected_behavior": [
+    "No goroutine-leak / resource-leak finding is reported for internal/worker/pool.go (the worker select-loop already exits on ctx.Done() and on a closed jobs channel)",
+    "If the new concurrency is mentioned at all, it is acknowledged as correctly cancellable and any note stays at SUGGESTED/QUESTION (e.g. dropped-on-cancel jobs, handler honouring ctx) rather than a leak claim",
+    "max_critical = 0 for this file"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the worker goroutines as a goroutine/resource leak or as goroutines that never terminate",
+    "Does NOT claim the goroutines are unbounded or accumulate across calls (size is fixed and Run wg.Wait()s for all of them)",
+    "Does NOT claim the select-loop blocks forever or is missing context/done-channel cancellation (both ctx.Done() and a closed jobs channel exit the loop)",
+    "Does NOT recommend adding cancellation/context handling that is already present"
+  ]
+}

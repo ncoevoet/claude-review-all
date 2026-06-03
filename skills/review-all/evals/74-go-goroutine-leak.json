@@ -1,0 +1,42 @@
+{
+  "id": "74-go-goroutine-leak",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A sharded records store fans a key lookup out across every shard concurrently and returns the first hit. The result channel was changed from a BUFFERED channel sized to the number of shards (`make(chan *Record, len(s.shards))`) to an UNBUFFERED channel (`make(chan *Record)`). Each goroutine does a blocking send `results <- rec` when its shard holds the key, but the caller's `select` receives only ONE value (the first hit) or returns on `ctx.Done()`, and then returns WITHOUT draining the channel or signaling cancellation to the other goroutines. With the unbuffered channel, every other matching goroutine — and ALL still-running senders on the ctx-cancel path — blocks forever on the send, leaking the goroutine plus everything it captured (the shard, key, ctx, found *Record) on every Find call where more than one shard matches or the context fires first. The before-version's buffered channel (capacity == number of senders) let every goroutine deposit its result and exit even when the caller took only the first one, so there was no leak. Modified-file diff: the only changed line is the channel construction (buffered -> unbuffered).",
+    "files": {
+      "internal/store/store.go": {
+        "before": "package store\n\nimport \"context\"\n\n// Record is a single stored entry.\ntype Record struct {\n\tID    string\n\tValue []byte\n}\n\n// Shard is one partition of the record store that can be scanned for a key.\ntype Shard interface {\n\tLookup(ctx context.Context, key string) (*Record, bool)\n}\n\n// Store fans a lookup out across every shard and returns the first hit.\ntype Store struct {\n\tshards []Shard\n}\n\n// Find queries all shards concurrently and returns the first matching record.\n// The first shard to report a hit wins; the remaining lookups are abandoned.\nfunc (s *Store) Find(ctx context.Context, key string) (*Record, error) {\n\tresults := make(chan *Record, len(s.shards))\n\tfor _, shard := range s.shards {\n\t\tgo func(sh Shard) {\n\t\t\tif rec, ok := sh.Lookup(ctx, key); ok {\n\t\t\t\tresults <- rec\n\t\t\t}\n\t\t}(shard)\n\t}\n\n\tselect {\n\tcase rec := <-results:\n\t\treturn rec, nil\n\tcase <-ctx.Done():\n\t\treturn nil, ctx.Err()\n\t}\n}\n",
+        "after": "package store\n\nimport \"context\"\n\n// Record is a single stored entry.\ntype Record struct {\n\tID    string\n\tValue []byte\n}\n\n// Shard is one partition of the record store that can be scanned for a key.\ntype Shard interface {\n\tLookup(ctx context.Context, key string) (*Record, bool)\n}\n\n// Store fans a lookup out across every shard and returns the first hit.\ntype Store struct {\n\tshards []Shard\n}\n\n// Find queries all shards concurrently and returns the first matching record.\n// The first shard to report a hit wins; the remaining lookups are abandoned.\nfunc (s *Store) Find(ctx context.Context, key string) (*Record, error) {\n\tresults := make(chan *Record)\n\tfor _, shard := range s.shards {\n\t\tgo func(sh Shard) {\n\t\t\tif rec, ok := sh.Lookup(ctx, key); ok {\n\t\t\t\tresults <- rec\n\t\t\t}\n\t\t}(shard)\n\t}\n\n\tselect {\n\tcase rec := <-results:\n\t\treturn rec, nil\n\tcase <-ctx.Done():\n\t\treturn nil, ctx.Err()\n\t}\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "resource-leak",
+        "file": "internal/store/store.go",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the MAIN report (not an appendix, and not dismissed/deferred as pre-existing) flags that Store.Find in internal/store/store.go leaks goroutines because the result channel `results` is UNBUFFERED (`make(chan *Record)`) while the caller's `select` receives only the first value (or returns on `ctx.Done()`) and then returns WITHOUT draining the channel or cancelling the other goroutines — so every other matching goroutine (and all still-running senders when ctx fires first) blocks forever on `results <- rec`, leaking the goroutine and the memory it captured on each call where more than one shard matches (or the context cancels first). The finding must identify the unbuffered/undrained channel send as the leak mechanism (not merely 'this code is concurrent' or 'add a timeout'). The recommended fix must be one of: (a) make the channel BUFFERED with capacity equal to the number of senders/shards (`make(chan *Record, len(s.shards))`, which is also the minimal revert), (b) have the sending goroutines `select` on a done/cancel channel or `ctx.Done()` so the send cannot block forever, or (c) ensure the receiver always drains all sends. Any one of these named fixes is sufficient. Severity must be IMPORTANT or CRITICAL. FAIL if the goroutine leak is absent, graded below IMPORTANT, surfaced only in an appendix/minor note, dropped as pre-existing, or if the report only mentions a generic/unrelated concern (e.g. just 'no overall timeout', the loop-variable capture — which is correctly handled here by passing `shard` as `sh` — or that Find can block when no shard matches) WITHOUT identifying the leaking blocked send on the unbuffered channel. Do NOT require the exact phrase 'goroutine leak'."
+  },
+  "expected_behavior": [
+    "Bugs / resource agent flags that Find launches goroutines that block forever on the unbuffered `results` channel because the caller returns after the first received value (or on ctx.Done()) without draining or cancelling the rest",
+    "Identifies that this leaks a goroutine (and its captured shard/ctx/record memory) on every call where more than one shard matches or the context fires first",
+    "Names the fix as a buffered channel sized to the number of senders, OR selecting on ctx.Done()/a done channel in the send, OR draining the channel",
+    "Reports it at IMPORTANT or CRITICAL severity in the main report"
+  ],
+  "expected_not_behavior": [
+    "Does NOT reduce the finding to merely 'add an overall timeout' while missing the blocked send / goroutine leak",
+    "Does NOT flag the closure as capturing the loop variable incorrectly (it correctly passes `shard` as the `sh` parameter)",
+    "Does NOT claim a single-shard happy path is itself buggy",
+    "Does NOT drop the finding as pre-existing",
+    "Does NOT only note that Find blocks until ctx fires when no shard matches, while ignoring the leaking senders"
+  ]
+}

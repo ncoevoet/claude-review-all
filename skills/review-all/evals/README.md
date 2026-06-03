@@ -67,8 +67,31 @@ A labeled scenario suite that probes whether the orchestrator catches what it sh
 | `59-signal-before-state` | concurrency | `CountDownLatch.countDown()` called before the guarded result is assigned → a released waiter reads null/stale (single-writer ordering, not a lost-update race). |
 | `60-shallow-clone-shared-collection` | encapsulation / aliasing | `super.clone()` copies a mutable `Map` by reference → clone and original share one backing collection. |
 | `61-comparator-vs-head-insert` | logic | Descending sort then `add(0, …)` head-insertion reverses priority (the `Double.compare` comparator itself is correct). |
+| `62-python-import-shadowing` | recall / Python scoping | A function-local `from m import x` shadows the module-level name → `UnboundLocalError` on an earlier branch. |
+| `63-python-clock-domain-mismatch` | recall / correctness | Wall-clock `time.time()` stored, then subtracted from monotonic `time.monotonic()` → garbage TTL, entries never expire. |
+| `64-python-bare-except-platform` | recall / error handling | One over-broad/narrow `except` collapses independent probes, hiding a platform-specific error. |
+| `65-python-dict-mutation-unlocked` | recall / concurrency | A shared dict `.clear()`/mutated without the lock readers hold → race. |
+| `66-sql-null-three-valued-logic` | recall / SQL | `WHERE col = 0` on a nullable column silently drops NULL rows (needs `COALESCE`). |
+| `67-sql-fk-cascade-orphans` | recall / data integrity | Deleting a parent row without removing non-cascaded child references → orphaned rows. |
+| `68-csv-formula-injection` | recall / security (CWE-1236) | CSV export quotes per RFC-4180 but doesn't neutralize a leading `= + - @` → spreadsheet formula injection. |
+| `69-stale-async-response` | recall / concurrency | Overlapping async loads where a slower earlier response overwrites newer state (needs a generation guard). |
+| `70-generation-counter-correct` | precision | A correct generation-counter guard against stale responses — must NOT be flagged as a race. |
+| `71-monotonic-timeout-correct` | precision | A correct single-domain `monotonic()` timeout — must NOT be flagged as a clock-domain bug. |
+| `72-go-nil-map-write` | recall / Go | A constructor leaves a map nil (no `make`); a later write panics (`assignment to entry in nil map`). |
+| `73-go-err-shadowing` | recall / Go | Inner `:=` shadows the outer `err`, so the post-block error check is dead and an error is silently dropped. |
+| `74-go-goroutine-leak` | recall / Go | A goroutine blocks forever on a channel send with no cancellation/drain → goroutine leak. |
+| `75-go-defer-in-loop` | recall / Go | `defer f.Close()` inside a loop defers to function return → handles accumulate (fd exhaustion). |
+| `76-rust-unwrap-panic` | recall / Rust | `.unwrap()`/`.expect()` on a reachable `Err`/`None` (parse/lookup) → runtime panic. |
+| `77-rust-blocking-in-async` | recall / Rust | A blocking call (`std::thread::sleep` / sync IO) inside an `async fn` stalls the executor. |
+| `78-rust-mutex-across-await` | recall / Rust | A `std::sync::Mutex` guard held across `.await` → deadlock risk / non-`Send` future. |
+| `79-go-goroutine-cancellation-correct` | precision | A goroutine with proper `ctx.Done()`/quit-channel exit — must NOT be flagged as a leak. |
+| `80-rust-guard-dropped-before-await` | precision | A lock guard dropped before `.await` — must NOT be flagged as held-across-await. |
+| `81-boundary-catch-correct` | precision (guards `64`) | A correct top-level `except Exception` boundary that logs + surfaces (correlation id) — must NOT be flagged as a swallowed/over-broad catch. |
+| `82-sql-intentional-equality-correct` | precision (guards `66`) | An intentional `WHERE col = 1` on a NOT-NULL column where excluding NULL is correct — must NOT be flagged as a NULL-logic bug. |
+| `83-consistent-lock-discipline-correct` | precision (guards `65`) | A shared dict read/written/cleared always under the same lock — must NOT be flagged as a race. |
+| `84-csv-formula-neutralized-correct` | precision (guards `68`) | A CSV export that already prefixes `'` on `= + - @` fields — must NOT be flagged as CSV/formula injection. |
 
-61 cases as of this writing. Cases 16–41 were grown from real-world bug-fix patterns; cases 42–55 add a Java concurrency / resource / security flavor (plus a thread-safety precision counter-case, `55`); cases 56–61 add more Java bug classes (format-string misuse, default-charset, AB-BA deadlock, signal-before-state, shallow-clone aliasing, comparator-vs-head-insert) — all anonymized from real fix patterns, no provenance in the fixtures. Cases are schema-checked by `scripts/validate-evals.py` (a CI gate). Per the develop-tests guidance, keep growing (remaining ideas: sarcastic/ambiguous comments that should not become findings, huge multi-thousand-line diffs, mixed-language repos). Claude can generate additional cases from this baseline set.
+84 cases as of this writing. Cases 16–41 were grown from real-world bug-fix patterns; cases 42–55 add a Java concurrency / resource / security flavor (plus a thread-safety precision counter-case, `55`); cases 56–61 add more Java bug classes (format-string misuse, default-charset, AB-BA deadlock, signal-before-state, shallow-clone aliasing, comparator-vs-head-insert); cases 62–71 add **Python / TypeScript / SQL** coverage (import-shadowing, wall-vs-monotonic clock mix, three-valued SQL NULL, FK-cascade orphans, CSV/formula injection CWE-1236, stale-async-response, plus two precision counter-cases `70`/`71`); cases 72–80 add **Go and Rust** coverage (nil-map write, err-shadowing, goroutine leak, defer-in-loop, unwrap-panic, blocking-in-async, mutex-across-await, plus two precision counter-cases `79`/`80`); cases 81–84 are **precision counter-cases that guard the cycle-7 recall checks** (a correct boundary `except`, an intentional SQL NULL-exclusion, consistent lock discipline, a neutralized CSV export) from over-firing — all anonymized from real fix patterns, no provenance in the fixtures. Cases are schema-checked by `scripts/validate-evals.py` (a CI gate). Per the develop-tests guidance, keep growing (remaining ideas: sarcastic/ambiguous comments that should not become findings, huge multi-thousand-line diffs, mixed-language repos). Claude can generate additional cases from this baseline set.
 
 ## Schema
 

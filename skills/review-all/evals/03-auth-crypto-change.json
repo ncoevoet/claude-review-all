@@ -34,7 +34,6 @@
   ],
   "expected_not_behavior": [
     "Report does NOT mark the finding as appendix (score < 75)",
-    "Verifier does NOT drop the finding citing 'pre-existing'",
-    "Phase 4 primary fix-scope menu includes 'Fix critical' (Recommended)"
+    "Verifier does NOT drop the finding citing 'pre-existing'"
   ]
 }

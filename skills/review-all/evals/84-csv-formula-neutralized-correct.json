@@ -1,0 +1,39 @@
+{
+  "id": "84-csv-formula-neutralized-correct",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Precision counter-case (TypeScript) guarding recall case 68. A CSV export helper that, for string fields, ALREADY neutralizes spreadsheet formula triggers (CWE-1236) BEFORE RFC-4180 quoting. `neutralizeFormula` prefixes a single quote when a value starts with one of the canonical OWASP triggers = + - @ tab(0x09) CR(0x0D) LF(0x0A), and `escapeField` then applies RFC-4180 quoting (doubles embedded quotes, wraps values containing comma/quote/newline) on top of the neutralized value. Because the single-quote prefix is applied first, a label like `=SUM(A1:A2)` becomes `'=SUM(A1:A2)`, `+1+2` becomes `'+1+2`, a leading-newline payload `\\n=SUM(A1)` becomes `\"'\\n=SUM(A1)\"`, and a combined payload like `=1,2` becomes `\"'=1,2\"` (the leading `'` survives inside the RFC-4180 quotes) — so the user-supplied `label` can never become an executable formula when the file is opened in Excel/Google Sheets. This is the OPPOSITE of vulnerable case 68 (where escapeField only RFC-4180-quoted and the formula triggers passed through verbatim): here the formula-injection sink is correctly closed for the full OWASP trigger set. A reviewer hardened on the case-68 pattern (\"CSV escapes quotes but not formula triggers\") might wrongly flag this as CWE-1236; it is correct, verified at runtime (=SUM/+/-/@/tab/CR/LF/=1,2/=\"a\" all emerge single-quote prefixed) and under `tsc --strict --noEmit` (exit 0). Modified-file diff: `before` is the quote-only helper plus a plain `exportOrders`, `after` adds the `neutralizeFormula` step (wired into `escapeField`) so the diff is non-empty and the neutralization is exactly what must NOT be flagged.",
+    "files": {
+      "src/export/csv.ts": {
+        "before": "const RFC_SPECIAL = /[\",\\n\\r]/;\n\nfunction escapeField(value: string): string {\n  if (!RFC_SPECIAL.test(value)) {\n    return value;\n  }\n  return `\"${value.replace(/\"/g, '\"\"')}\"`;\n}\n\nexport function toCsvRow(fields: string[]): string {\n  return fields.map(escapeField).join(\",\");\n}\n\nexport interface OrderRecord {\n  id: number;\n  label: string;\n  amount: number;\n}\n\n// `label` is free text supplied by end users when they create an order.\nexport function exportOrders(records: OrderRecord[]): string {\n  const header = toCsvRow([\"id\", \"label\", \"amount\"]);\n  const rows = records.map((r) =>\n    toCsvRow([String(r.id), r.label, r.amount.toFixed(2)])\n  );\n  return [header, ...rows].join(\"\\n\");\n}\n",
+        "after": "const RFC_SPECIAL = /[\",\\n\\r]/;\nconst FORMULA_TRIGGER = /^[=+\\-@\\t\\r\\n]/;\n\n// Neutralize spreadsheet formula triggers (CWE-1236) BEFORE RFC-4180 quoting:\n// a leading = + - @ tab CR or LF turns the cell into an executable formula in\n// Excel/Google Sheets, so prefix a single quote to force the client to treat\n// the whole value as literal text. The RFC-4180 quoting below is applied on\n// top of the already-neutralized value.\nfunction neutralizeFormula(value: string): string {\n  return FORMULA_TRIGGER.test(value) ? `'${value}` : value;\n}\n\nfunction escapeField(value: string): string {\n  const safe = neutralizeFormula(value);\n  if (!RFC_SPECIAL.test(safe)) {\n    return safe;\n  }\n  return `\"${safe.replace(/\"/g, '\"\"')}\"`;\n}\n\nexport function toCsvRow(fields: string[]): string {\n  return fields.map(escapeField).join(\",\");\n}\n\nexport interface OrderRecord {\n  id: number;\n  label: string;\n  amount: number;\n}\n\n// `label` is free text supplied by end users when they create an order.\nexport function exportOrders(records: OrderRecord[]): string {\n  const header = toCsvRow([\"id\", \"label\", \"amount\"]);\n  const rows = records.map((r) =>\n    toCsvRow([String(r.id), r.label, r.amount.toFixed(2)])\n  );\n  return [header, ...rows].join(\"\\n\");\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "injection",
+        "file": "src/export/csv.ts"
+      }
+    ],
+    "max_critical": 0
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "This TypeScript file is CORRECT — the CSV export DOES neutralize spreadsheet formula triggers, so there is NO CSV / formula / spreadsheet injection (CWE-1236) defect. For every string field, `escapeField` first calls `neutralizeFormula`, which prefixes a single quote when the value starts with one of the canonical OWASP triggers = + - @ tab(0x09) CR(0x0D) LF(0x0A) via `FORMULA_TRIGGER = /^[=+\\-@\\t\\r\\n]/`, and ONLY THEN applies RFC-4180 quoting (doubling embedded quotes and wrapping values that contain comma/quote/newline). Because the single-quote prefix is applied BEFORE the quoting step, the user-supplied `label` can never become an executable formula in Excel/Google Sheets: `=SUM(A1:A2)` is emitted as `'=SUM(A1:A2)`, `+1+2` as `'+1+2`, a leading-newline payload `\\n=SUM(A1)` as `\"'\\n=SUM(A1)\"`, and a combined payload such as `=1,2` as `\"'=1,2\"` — the leading `'` survives inside the RFC-4180 quotes. This is the correct, complete mitigation of CWE-1236 across the full OWASP trigger set (the exact gap that vulnerable case 68 lacked). PASS if the report does NOT flag a CSV / formula / spreadsheet injection (CWE-1236) defect against src/export/csv.ts. A non-correctness SUGGESTED or QUESTION note — e.g. also neutralizing locale/edge characters like leading percent or full-width = + - @, centralizing the allow-list, adding a unit test, or naming — is acceptable and does NOT cause a FAIL. FAIL if the report flags this file as still vulnerable to CSV/formula/spreadsheet injection, claims a label beginning with = + - @ tab CR or LF can still execute as a formula, claims the neutralization is missing/insufficient/bypassable, claims the single-quote prefix is defeated by the RFC-4180 quoting (it is not — it is applied first and survives inside RFC-4180 quotes), or raises any DEBT/IMPORTANT/CRITICAL injection defect here; likewise FAIL if it invents an unrelated CRITICAL/IMPORTANT defect that is not real."
+  },
+  "expected_behavior": [
+    "No CSV / formula / spreadsheet injection (CWE-1236) finding is reported for src/export/csv.ts (the export already prefixes a single quote for values starting with = + - @ tab(0x09) CR(0x0D) or LF(0x0A) before RFC-4180 quoting)",
+    "If the export is mentioned at all, it is acknowledged that formula triggers are correctly neutralized and any note stays at SUGGESTED/QUESTION (e.g. add a unit test, centralize the trigger list, optionally cover locale/edge chars) rather than a defect claim",
+    "No invented CRITICAL/IMPORTANT defect for this file"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the file as vulnerable to CSV/formula/spreadsheet injection (CWE-1236)",
+    "Does NOT claim a label beginning with = + - @ tab CR or LF can still execute as a formula in Excel/Google Sheets (it is single-quote prefixed)",
+    "Does NOT claim the single-quote neutralization is missing, insufficient, or defeated by the RFC-4180 quoting (the quote prefix is applied first and survives inside RFC-4180 quotes)",
+    "Does NOT recommend adding formula-trigger neutralization as if it were absent (it is already present for the full OWASP trigger set)"
+  ]
+}

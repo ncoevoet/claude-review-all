@@ -1,0 +1,41 @@
+{
+  "id": "72-go-nil-map-write",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A new alternate constructor `NewBoundedPool` is added to the worker-pool `Pool` struct but, unlike the existing `NewPool`, it never initializes the `counters map[string]int` field with make(), leaving it nil. The unchanged `Record` method writes to that map (`p.counters[task]++`). Writing to a nil map panics at runtime with \"assignment to entry in nil map\", so any Pool built via NewBoundedPool crashes the first time Record is called. The read path (`Total`, `return p.counters[task]`) is safe on a nil map, which masks the bug in read-only tests. Fix: initialize the map (e.g. `counters: make(map[string]int)`) in NewBoundedPool (or before the first write).",
+    "files": {
+      "internal/worker/pool.go": {
+        "before": "package worker\n\n// Pool tracks per-task completion counts for a worker pool.\ntype Pool struct {\n\tcounters map[string]int\n\tlimit    int\n}\n\n// NewPool returns a Pool with an unbounded counter map.\nfunc NewPool() *Pool {\n\treturn &Pool{\n\t\tcounters: make(map[string]int),\n\t}\n}\n\n// Record increments the completion count for the named task.\nfunc (p *Pool) Record(task string) {\n\tp.counters[task]++\n}\n\n// Total returns the recorded count for the named task.\nfunc (p *Pool) Total(task string) int {\n\treturn p.counters[task]\n}\n",
+        "after": "package worker\n\n// Pool tracks per-task completion counts for a worker pool.\ntype Pool struct {\n\tcounters map[string]int\n\tlimit    int\n}\n\n// NewPool returns a Pool with an unbounded counter map.\nfunc NewPool() *Pool {\n\treturn &Pool{\n\t\tcounters: make(map[string]int),\n\t}\n}\n\n// NewBoundedPool returns a Pool that caps the number of in-flight tasks.\nfunc NewBoundedPool(limit int) *Pool {\n\treturn &Pool{\n\t\tlimit: limit,\n\t}\n}\n\n// Record increments the completion count for the named task.\nfunc (p *Pool) Record(task string) {\n\tp.counters[task]++\n}\n\n// Total returns the recorded count for the named task.\nfunc (p *Pool) Total(task string) int {\n\treturn p.counters[task]\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "internal/worker/pool.go",
+        "min_severity": "CRITICAL",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS only if the report, in its MAIN findings (not an appendix or a dropped/out-of-scope list), flags that the newly added `NewBoundedPool` constructor in internal/worker/pool.go leaves the `counters` map nil (it never calls make(), unlike NewPool), so when `Record` does `p.counters[task]++` it writes to a nil map and panics at runtime (\"assignment to entry in nil map\") — crashing any Pool built via NewBoundedPool on the first Record call. It must recommend initializing the map (e.g. `counters: make(map[string]int)` in NewBoundedPool, or initializing before the first write). Severity must be CRITICAL or higher. It is fine (not required) if the report also notes that reads via Total are safe on a nil map and thus hide the bug. FAIL if this nil-map-write panic is absent, reported below CRITICAL (e.g. IMPORTANT/SUGGESTED), only in an appendix, attributed to the wrong file, dropped as pre-existing/out-of-scope, or if the report merely mentions the map without identifying that NewBoundedPool's missing make() causes a runtime panic on write."
+  },
+  "expected_behavior": [
+    "Bugs agent flags that NewBoundedPool leaves the counters map nil (no make()) while Record writes to it",
+    "Identifies the runtime panic 'assignment to entry in nil map' on the first Record call for a Pool built via NewBoundedPool",
+    "Recommends initializing the map with make(map[string]int) in NewBoundedPool (or before the first write)",
+    "Severity CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT assume NewBoundedPool initializes counters elsewhere (it does not; the field is left nil on that path)",
+    "Does NOT claim the read path (Total) is the bug — reads from a nil map are safe",
+    "Does NOT drop the finding as pre-existing or out-of-scope (the nil-construction path is introduced by this diff)",
+    "Does NOT downgrade the panic to a style/lint nit or below CRITICAL"
+  ]
+}

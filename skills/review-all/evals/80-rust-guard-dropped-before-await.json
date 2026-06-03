@@ -1,0 +1,37 @@
+{
+  "id": "80-rust-guard-dropped-before-await",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Rust precision counter-case (the code is CORRECT and must NOT be flagged). An async worker pool reads/mutates shared PoolState behind a std::sync::Mutex, then awaits I/O. The change adds two async methods, both of which release the MutexGuard BEFORE the .await by confining the lock to an inner block: (1) flush_batch copies the pending count out inside `{ let guard = self.state.lock().unwrap(); guard.pending }`, so the guard is dropped at the block's closing brace before `sink(pending).await`; (2) record_result locks/mutates/reads `completed` inside `{ let mut guard = self.state.lock().unwrap(); ...; guard.completed }`, so the guard is likewise dropped at the block's closing brace before `persist(completed).await`. No std Mutex guard is held across an await point, so the futures stay Send (verified with a Send assertion under rustc 1.75, editions 2018 and 2021) and there is no deadlock, task-starvation, or lost-update. The trap: a reviewer pattern-matching on 'std::sync::Mutex + async fn + .await' might wrongly flag a held-across-await / !Send / race defect. NOTE: the original draft of this fixture used `let mut guard = ...; drop(guard); ... .await` in record_result, which actually produces a !Send future on stable Rust <= 1.84 / edition <= 2021 (the `mut guard` binding stays live across the await for auto-trait analysis: 'with mut guard maybe used later'); that form was a true positive a reviewer should flag, so it was replaced with the provably-Send inner-block form. Domain is fully anonymized (generic worker pool / job queue). Single modified file, clean 25-line pure addition.",
+    "files": {
+      "src/worker/pool.rs": {
+        "before": "use std::collections::VecDeque;\nuse std::sync::{Arc, Mutex};\n\n#[derive(Default)]\nstruct PoolState {\n    pending: usize,\n    completed: u64,\n}\n\n#[derive(Clone)]\npub struct WorkerPool {\n    state: Arc<Mutex<PoolState>>,\n}\n\nimpl WorkerPool {\n    pub fn new() -> Self {\n        Self { state: Arc::new(Mutex::new(PoolState::default())) }\n    }\n\n    pub fn enqueue(&self, count: usize) {\n        let mut guard = self.state.lock().unwrap();\n        guard.pending += count;\n    }\n\n    pub fn snapshot(&self) -> (usize, u64) {\n        let guard = self.state.lock().unwrap();\n        (guard.pending, guard.completed)\n    }\n}\n",
+        "after": "use std::collections::VecDeque;\nuse std::sync::{Arc, Mutex};\n\n#[derive(Default)]\nstruct PoolState {\n    pending: usize,\n    completed: u64,\n}\n\n#[derive(Clone)]\npub struct WorkerPool {\n    state: Arc<Mutex<PoolState>>,\n}\n\nimpl WorkerPool {\n    pub fn new() -> Self {\n        Self { state: Arc::new(Mutex::new(PoolState::default())) }\n    }\n\n    pub fn enqueue(&self, count: usize) {\n        let mut guard = self.state.lock().unwrap();\n        guard.pending += count;\n    }\n\n    pub fn snapshot(&self) -> (usize, u64) {\n        let guard = self.state.lock().unwrap();\n        (guard.pending, guard.completed)\n    }\n\n    pub async fn flush_batch<F>(&self, sink: F) -> usize\n    where\n        F: Fn(usize) -> futures::future::BoxFuture<'static, ()>,\n    {\n        let pending = {\n            let guard = self.state.lock().unwrap();\n            guard.pending\n        };\n        sink(pending).await;\n        pending\n    }\n\n    pub async fn record_result<F>(&self, persist: F)\n    where\n        F: Fn(u64) -> futures::future::BoxFuture<'static, ()>,\n    {\n        let completed = {\n            let mut guard = self.state.lock().unwrap();\n            guard.pending = guard.pending.saturating_sub(1);\n            guard.completed += 1;\n            guard.completed\n        };\n        persist(completed).await;\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "race-condition",
+        "file": "src/worker/pool.rs"
+      }
+    ],
+    "max_critical": 0
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "This Rust file is CORRECT: no std::sync::Mutex guard is held across an .await point. In flush_batch, the lock is taken inside an inner block `{ let guard = self.state.lock().unwrap(); guard.pending }` whose value is moved into the `pending` local; the MutexGuard is dropped at the closing brace of that block, BEFORE `sink(pending).await`. In record_result, the lock+mutation are confined to an inner block `{ let mut guard = self.state.lock().unwrap(); guard.pending = guard.pending.saturating_sub(1); guard.completed += 1; guard.completed }` whose value is moved into the `completed` local; the guard is therefore dropped at that block's closing brace, BEFORE `persist(completed).await`. Because the guard never crosses an await in either method, the futures remain Send (this was verified by compiling the code with a `fn assert_send<T: Send>(_: T)` harness under rustc 1.75 on editions 2018 and 2021 — both futures are Send), there is no risk of the runtime parking the task while holding the lock, and there is no deadlock or data race. PASS if the report does NOT claim any of: a std/blocking Mutex guard (MutexGuard) held across an await, a !Send future caused by holding the lock across await, a deadlock or task-starvation from awaiting while locked, or a race/lost-update on PoolState. A non-correctness SUGGESTED/QUESTION note (e.g. suggesting tokio::sync::Mutex anyway, using parking_lot, that snapshot's tuple read could be one call, naming, or that the unused VecDeque import / the std Mutex .unwrap() on poison could be tidied) is acceptable and does NOT cause a FAIL. FAIL if the report flags the lock as held across the await, claims the guard is not dropped before .await, claims the future is wrongly !Send because of the guard, or invents a deadlock / race-condition / lost-update defect for this file — any of those is a false positive."
+  },
+  "expected_behavior": [
+    "No concurrency / held-across-await finding is reported (in both flush_batch and record_result the guard is dropped before the .await via inner-block scope)",
+    "Any note about the new async methods stays at SUGGESTED/QUESTION and is not a held-across-await or race-condition claim"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the std::sync::Mutex guard as held across the .await",
+    "Does NOT claim the future is !Send because the lock guard crosses an await point",
+    "Does NOT invent a deadlock, task-starvation, race-condition, or lost-update defect in PoolState"
+  ]
+}

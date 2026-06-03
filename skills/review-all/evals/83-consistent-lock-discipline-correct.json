@@ -1,0 +1,39 @@
+{
+  "id": "83-consistent-lock-discipline-correct",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Precision counter-case (Python). A module-level cache exposes get/set plus a new invalidate_all(). EVERY access to the shared `_CACHE` dict — the read in get(), the write in set(), the del in get()'s TTL-eviction, AND the `_CACHE.clear()` in invalidate_all() — is performed while holding the SAME module-level `threading.Lock` (`with _LOCK:`). An explicit invariant comment states that the clear() is also under the lock. This is correct, consistent lock discipline: all mutations are fully serialized against all readers and writers because they share one lock, so there is no data race and no broken mutual-exclusion contract — even on a free-threaded/no-GIL build, and even if the dict were iterated, the lock serializes it. This is the exact INVERSE of recall case 65 (where invalidate_all's clear() was moved OUTSIDE the lock, which IS a bug). A reviewer hardened on case 65's 'mutation outside the readers'' lock' pattern might wrongly flag the lock-guarded clear() here. Modified-file diff: `before` has only get()/set() (both lock-guarded); `after` ADDS invalidate_all() with its `_CACHE.clear()` wrapped in `with _LOCK:` (and updates the invariant comment to mention the clear). The diff is non-empty and lands precisely on the correctly-locked clear() — exactly the line that must NOT be flagged as a race.",
+    "files": {
+      "src/cache/record_cache.py": {
+        "before": "import threading\nimport time\n\n# Concurrency invariant: every access to the shared _CACHE dict -- reads and\n# writes -- is performed while holding _LOCK. All accessors below acquire the\n# SAME lock, so mutations are fully serialized and the map is never touched\n# without it.\n_LOCK = threading.Lock()\n_CACHE = {}\n_TTL_SECONDS = 300\n\n\ndef get(key):\n    with _LOCK:\n        entry = _CACHE.get(key)\n        if entry is None:\n            return None\n        value, expires_at = entry\n        if time.monotonic() > expires_at:\n            del _CACHE[key]\n            return None\n        return value\n\n\ndef set(key, value):\n    with _LOCK:\n        _CACHE[key] = (value, time.monotonic() + _TTL_SECONDS)\n",
+        "after": "import threading\nimport time\n\n# Concurrency invariant: every access to the shared _CACHE dict -- reads,\n# writes, AND the clear() in invalidate_all() -- is performed while holding\n# _LOCK. All accessors below acquire the SAME lock, so mutations are fully\n# serialized and the map is never touched without it.\n_LOCK = threading.Lock()\n_CACHE = {}\n_TTL_SECONDS = 300\n\n\ndef get(key):\n    with _LOCK:\n        entry = _CACHE.get(key)\n        if entry is None:\n            return None\n        value, expires_at = entry\n        if time.monotonic() > expires_at:\n            del _CACHE[key]\n            return None\n        return value\n\n\ndef set(key, value):\n    with _LOCK:\n        _CACHE[key] = (value, time.monotonic() + _TTL_SECONDS)\n\n\ndef invalidate_all():\n    with _LOCK:\n        _CACHE.clear()\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "race-condition",
+        "file": "src/cache/record_cache.py"
+      }
+    ],
+    "max_critical": 0
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "This Python file is CORRECT — it has consistent, complete lock discipline and there is NO race condition. The module-level shared dict `_CACHE` is protected by a single module-level `threading.Lock` named `_LOCK`, and EVERY access to it holds that same lock inside a `with _LOCK:` block: the read in `get()`, the TTL-eviction `del _CACHE[key]` in `get()`, the write in `set()`, AND the `_CACHE.clear()` in `invalidate_all()`. Because all readers, all writers, and the invalidation share the one lock, every mutation is fully serialized against every other access — the mutual-exclusion contract is intact, no accessor ever touches the dict without the lock, and this holds even on a free-threaded/no-GIL build or if the dict were iterated under the lock. PASS if the report does NOT flag a race-condition / 'a shared dict mutated under the SAME lock everywhere (must NOT be flagged as a race)' / unsynchronized-mutation / mutation-outside-the-readers'-lock / broken-locking-invariant / lost-update / 'clear() not under the lock' / missing-synchronization / thread-safety defect against src/cache/record_cache.py. A note kept at SUGGESTED/QUESTION severity that is NOT a correctness-defect claim — e.g. that a read/write lock or finer-grained locking could improve throughput, that holding the lock during the clear briefly blocks readers, that an RLock could be used, or naming/doc nits — is acceptable and does NOT cause a FAIL. FAIL if the report flags this (non-)issue as a DEBT / IMPORTANT / CRITICAL defect to fix — e.g. claims the clear()/invalidate_all() (or any access) mutates `_CACHE` without/outside the lock, claims a data race, lost update, or broken synchronization invariant, claims access is unsynchronized or not thread-safe, or recommends adding synchronization that is already present — or if it invents an unrelated CRITICAL/IMPORTANT defect in this file that is not real. Any such claim is a false positive on this precision case."
+  },
+  "expected_behavior": [
+    "No race-condition / thread-safety / unsynchronized-mutation finding is reported for src/cache/record_cache.py (every access to _CACHE, including invalidate_all()'s clear(), holds the same _LOCK)",
+    "If the new invalidate_all() is mentioned at all, it is acknowledged as correctly lock-guarded and any note stays at SUGGESTED/QUESTION (e.g. read/write-lock throughput, lock contention) rather than a correctness-defect claim",
+    "max_critical = 0 for this file"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag _CACHE.clear() in invalidate_all() (or any access) as mutating the shared dict outside/without _LOCK — it is wrapped in `with _LOCK:`",
+    "Does NOT claim a data race, lost update, broken mutual-exclusion / locking invariant, or non-thread-safe access against this file",
+    "Does NOT recommend adding synchronization (a lock around the clear, a different lock primitive, ConcurrentDict-equivalent) that is already present",
+    "Does NOT invent an unrelated CRITICAL/IMPORTANT defect in this file"
+  ]
+}

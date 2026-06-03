@@ -1,0 +1,39 @@
+{
+  "id": "81-boundary-catch-correct",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Precision counter-case (Python). A top-level HTTP request handler (the process/request boundary) is hardened by wrapping its whole body in `try: ... except Exception as ex:`. The handler delegates to a service, handles its known domain errors first (NotFoundError -> 404, ValidationError -> 400), and on any other unexpected error it LOGS the failure with full context and a stable correlation id via log.exception(...) (which records the traceback via exc_info), then returns a 500 carrying that correlation id so the failure is surfaced -- never swallowed. This is the correct, idiomatic boundary pattern: a single bad request must not crash the worker / leak a stack trace to the client. The broad `except Exception` is the deliberate last-resort catch-all AT the boundary. Modified-file diff: `before` lets unexpected exceptions propagate out of the request handler (no boundary catch); `after` adds the logged-and-surfaced catch-all, so the added `except Exception` is exactly what must NOT be flagged as swallowing / over-broad. Guards recall case 64.",
+    "files": {
+      "src/api/orders_handler.py": {
+        "before": "import logging\nimport uuid\n\nfrom .errors import NotFoundError, ValidationError\nfrom .service import OrderService\n\nlog = logging.getLogger(\"api.orders\")\n\n\nclass OrdersHandler:\n    def __init__(self, service: OrderService) -> None:\n        self._service = service\n\n    def get_order(self, request: dict) -> tuple[int, dict]:\n        order_id = request.get(\"order_id\")\n        try:\n            order = self._service.fetch(order_id)\n            return 200, {\"order\": order}\n        except NotFoundError:\n            return 404, {\"error\": \"order not found\", \"order_id\": order_id}\n        except ValidationError as ex:\n            return 400, {\"error\": str(ex)}\n",
+        "after": "import logging\nimport uuid\n\nfrom .errors import NotFoundError, ValidationError\nfrom .service import OrderService\n\nlog = logging.getLogger(\"api.orders\")\n\n\nclass OrdersHandler:\n    def __init__(self, service: OrderService) -> None:\n        self._service = service\n\n    def get_order(self, request: dict) -> tuple[int, dict]:\n        \"\"\"Top-level request boundary.\n\n        Known/expected errors map to their own status codes. The final\n        `except Exception` is the deliberate last-resort catch-all that a\n        request boundary SHOULD have: one bad request must not crash the\n        worker. The error is NOT swallowed -- it is logged with a full\n        traceback and a correlation id (log.exception records exc_info),\n        and that id is surfaced to the caller in a 500 so the failure stays\n        observable end to end.\n        \"\"\"\n        order_id = request.get(\"order_id\")\n        try:\n            order = self._service.fetch(order_id)\n            return 200, {\"order\": order}\n        except NotFoundError:\n            return 404, {\"error\": \"order not found\", \"order_id\": order_id}\n        except ValidationError as ex:\n            return 400, {\"error\": str(ex)}\n        except Exception as ex:\n            correlation_id = uuid.uuid4().hex\n            log.exception(\n                \"unhandled error serving order_id=%s correlation_id=%s: %s\",\n                order_id,\n                correlation_id,\n                ex,\n            )\n            return 500, {\"error\": \"internal error\", \"correlation_id\": correlation_id}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "unhandled-error",
+        "file": "src/api/orders_handler.py"
+      }
+    ],
+    "max_critical": 0
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "This Python file is CORRECT. `OrdersHandler.get_order` is a top-level HTTP request handler (a request/process boundary). It handles its known domain errors first (NotFoundError -> 404, ValidationError -> 400), and the final `except Exception as ex` is a deliberate, correct last-resort catch-all AT that boundary: a single bad request must not crash the worker. The error is NOT swallowed -- it is logged with a full traceback and a stable correlation id via `log.exception(...)` (which records exc_info), and that correlation id is returned to the caller in a 500 response, so the failure is fully observable in the logs and surfaced to the client. This is the standard, idiomatic boundary pattern, not over-broad exception handling. PASS if the report does NOT flag any swallowed-exception / over-broad-catch / 'broad or bare except hides errors' / 'catch-all masks failures' / unhandled-error defect against src/api/orders_handler.py. A non-correctness SUGGESTED or QUESTION note -- e.g. catching a narrower base than Exception, emitting a metric/alert in addition to the log, that the 500 body could omit details, that the happy-path return could move to an else block, that passing `ex` to log.exception is redundant with exc_info, or re-raising in some frameworks -- is acceptable and does NOT cause a FAIL. FAIL if the report flags the broad `except Exception` here as a DEBT/IMPORTANT/CRITICAL defect to fix (e.g. claims it swallows or hides errors, that it is too broad and should be narrowed/removed, that errors are silently lost, or that the failure is not logged/surfaced), or invents any other CRITICAL/IMPORTANT correctness finding that is not real -- any of those is a false positive on this precision case."
+  },
+  "expected_behavior": [
+    "No swallowed-exception / over-broad-catch / unhandled-error finding is reported for src/api/orders_handler.py (the boundary catch-all logs with a traceback and surfaces a 500 with a correlation id)",
+    "If the broad except is mentioned at all, it is acknowledged as the correct request-boundary pattern and any note stays at SUGGESTED/QUESTION (e.g. add a metric, catch a narrower base, move the happy-path return to an else block, drop the redundant `ex` arg from log.exception) rather than a defect claim",
+    "max_critical = 0 for this file"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the `except Exception` catch-all as swallowing, hiding, or silently dropping errors",
+    "Does NOT claim the broad catch is over-broad and must be narrowed or removed at this request boundary",
+    "Does NOT claim the error is not logged or not surfaced (it is logged with a traceback via log.exception and returned as a 500 with a correlation id)",
+    "Does NOT invent a CRITICAL/IMPORTANT correctness finding about this boundary handler"
+  ]
+}
