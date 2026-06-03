@@ -3,7 +3,7 @@ name: review-all
 description: "Multi-agent code review for diffs (project-agnostic). Covers standards, bugs, security, DRY, smells, perf, tests, API contracts, a11y/i18n. Verifies each finding to eliminate false positives. Use for /review-all, pre-PR/pre-commit review, or auditing uncommitted/staged changes."
 argument-hint: "[target] [--paths a,b] [--exclude x,y]"
 effort: high
-allowed-tools: Bash(git diff:*) Bash(git log:*) Bash(git status:*) Bash(git show:*) Bash(git merge-base:*) Bash(git blame:*) Bash(gh pr diff:*) Bash(gh pr view:*) Bash(lsof:*) Bash(timeout:*) Bash(bash:*) Bash(python3:*) Bash(mkdir:*) Read Glob Grep Write Edit AskUserQuestion
+allowed-tools: Bash(git diff:*) Bash(git log:*) Bash(git status:*) Bash(git show:*) Bash(git merge-base:*) Bash(git blame:*) Bash(gh pr diff:*) Bash(gh pr view:*) Bash(gh pr comment:*) Bash(gh issue create:*) Bash(lsof:*) Bash(timeout:*) Bash(bash:*) Bash(python3:*) Bash(mkdir:*) Read Glob Grep Write Edit AskUserQuestion
 ---
 
 <!-- effort: high is a recall FLOOR. Per Anthropic's Opus 4.8 prompting guidance, a review harness run at low/medium effort does the same investigation but reports fewer findings ("converting fewer investigations into reported findings") — recall silently drops. `high` is Opus 4.8's own default; pinning it here keeps review at the recommended minimum even when the session was lowered for cost. Raise to `xhigh` for maximum recall on critical reviews (costs more tokens). -->
@@ -185,6 +185,7 @@ This makes the skill portable across MCP namespaces and survives codegraph-serve
 ### Step 0.8 — Gather Changes
 
 - Get changed file list and full diff for the resolved review target
+- **Classify each changed file by change type** via `git diff --name-status <range>` (statuses `A`/`M`/`D`/`R`/`T`). Store the per-file type and the bucket counts (Added/Modified/Deleted/Renamed) in the Project Profile under `changeTypes`. (The Spec Existence Check already uses `--diff-filter=A` — this is the same data, gathered once.) Feeds the Phase 3 "Files Changed" buckets and the Phase 2 scrutiny weighting (Rule 7).
 - `git log --oneline -10` for recent commit format context
 - If reviewing a PR: include the PR title/description as intent context
 - Build a per-file slice of the diff (for diff-slicing in Phase 2)
@@ -293,6 +294,8 @@ For each agent you spawn: pass its persona + `_shared.md` (concatenated) + the d
 - `${codegraphTools.X}` — from the runtime-resolved map from Step 0.7.
 - `${quota.debt}` / `${quota.suggested}` / `${quota.question}` — from config keys `quotaDebt` (default `5`), `quotaSuggested` (default `3`), `quotaQuestion` (default `2`) in `.claude/review-all.json`. Config value of `0` disables that per-agent quota.
 
+Include the per-file `changeTypes` from Step 0.8 in `<project_profile>` so agents apply Rule 7's change-type scrutiny weighting — strictest bar on newly **Added** files (no established-convention cover), downstream-breakage focus on **Deleted** files.
+
 Apply `extraAgents` and `skipAgents` from `.claude/review-all.json`.
 
 Each agent returns findings with `root_cause_key` (used for cross-agent dedup).
@@ -340,13 +343,15 @@ Required sections (in order): **Verdict line** (must-fix count, or ✅ none), In
 
 ## Phase 4: Post-Report Choices
 
-Detailed menu, apply-fixes sub-menu, loop logic, guardrails live in **`references/phase-4-menu.md`** (sibling of this file). Read it before presenting the menu.
+Detailed menu, triage loop, the three follow-up actions, apply-fixes sub-menu, loop logic, guardrails live in **`references/phase-4-menu.md`** (sibling of this file). Read it before presenting the menu.
 
-Skip Phase 4 entirely if every section says "None found." Otherwise present the primary fix-scope menu via `AskUserQuestion` (single-select) with up to four options: **Fix critical**, **Fix critical + important**, **Fix critical + important + debt**, **Custom (C/I/D/S + #IDs)**. Only include scopes that have matching findings. The extended multi-select menu (Save report, Deep-dive, Post to PR, Skip / done, …) opens as follow-up after the chosen fix action completes.
+**Mandatory menu gate (mirror of the Phase 2.75 completion gate).** Presenting the Phase 4 menu is NOT optional. The orchestrator MUST present the Phase 4 menu in the SAME turn as the Phase 3 report — emitting the report and then ending the turn is a silent failure. Treat "the report is done, so I'm done" as the #1 Phase 4 failure mode after a long `effort: high` review, exactly as premature agent loss is for Phase 2.75.
 
-The **Custom** option accepts a free-text expression mixing severity letters (`C`/`I`/`D`/`S`, case-insensitive) and finding IDs (`#11` or bare `11`, ranges `1-7` or `#3-#9`), separated by comma, whitespace, or `and`. Result = UNION of every matched ID; severity letters expand to all in-report findings of that tier. Examples: `I D #11` → all 🟠 + all 🟡 + Finding 11; `1-7, 11` → those eight IDs. Full grammar in `references/phase-4-menu.md`.
+The ONLY condition that skips the menu: every report section reads "None found." AND there is no appendix (no 🔴/🟠/🟡/🔵/⚪ and nothing scoring 50–74). In that one case, state `✅ No actionable findings — nothing to triage.` and stop. In every other case the menu MUST appear.
 
-Every finding in the report must be numbered (`**Finding N**:`) across all sections including the appendix — the Custom option's `#N` syntax depends on it.
+Present the **primary menu** via `AskUserQuestion` (single-select, ≤4 options), built dynamically as four MODES: **Fix by scope…**, **Triage one-by-one**, **More actions…**, **Skip / done**. Show the two fix modes only when ≥1 fixable finding (🔴/🟠/🟡) exists; when only 🔵/⚪ exist, drop them and **lead with More actions…**. Full assembly rules, the fix-scope selector (incl. the **Custom** `C/I/D/S + #IDs` grammar — now nested under "Fix by scope…"), the guided triage loop, and the three follow-up actions (Ask a question, Generate tests, Create a ticket) live in `references/phase-4-menu.md`.
+
+Every finding in the report must be numbered (`**Finding N**:`) across all sections including the appendix — the Custom option's `#N` syntax and the per-finding actions depend on it.
 
 ---
 
@@ -372,13 +377,14 @@ Keep heartbeat output to one line each. Do NOT narrate internal deliberation bet
 ## Important Rules
 
 1. **LOCAL review only** unless the user explicitly picks "Post to PR". Default output is the terminal.
-2. **Verify everything.** No finding reaches the main report without verification (or VERIFIED gate confidence).
-3. **Evidence required.** Every finding must cite real code. "Might be a problem" is unacceptable.
-4. **No noise.** 3 verified findings beat 20 unverified suggestions.
-5. **Respect conventions.** Pattern in 5+ unchanged files is established convention — do not flag it.
-6. **Changed code only, but with semantic depth.** Only flag NEW or MODIFIED code (except Critical security). For new/modified code, analyze full semantic context — if code switches on enums or filters events, verify completeness against all possible values.
-7. **Actionable fixes.** Every finding must include a concrete fix.
-8. **Project-agnostic.** Discover conventions from the repo. Never assume framework rules from one project apply to another.
+2. **Always reach the Phase 4 menu.** A finished report is the START of Phase 4, never the end of the turn. Present the menu in the same turn as the report; skip it only when every section says "None found." and there is no appendix (mirrors the Phase 2.75 no-silent-drop rule, applied to the menu).
+3. **Verify everything.** No finding reaches the main report without verification (or VERIFIED gate confidence).
+4. **Evidence required.** Every finding must cite real code. "Might be a problem" is unacceptable.
+5. **No noise.** 3 verified findings beat 20 unverified suggestions.
+6. **Respect conventions.** Pattern in 5+ unchanged files is established convention — do not flag it.
+7. **Changed code only, but with semantic depth.** Only flag NEW or MODIFIED code (except Critical security). Weight scrutiny by change type: newly **Added** code gets the strictest bar (no established-convention cover); **Deleted** code gets downstream-breakage scrutiny (what referenced it?). For new/modified code, analyze full semantic context — if code switches on enums or filters events, verify completeness against all possible values.
+8. **Actionable fixes.** Every finding must include a concrete fix.
+9. **Project-agnostic.** Discover conventions from the repo. Never assume framework rules from one project apply to another.
 
 ---
 
@@ -401,5 +407,6 @@ User says: "pre-commit check on my staged files"
 - **`git` missing in Phase 0.0 preflight** → abort with explicit error; nothing in the skill works without git (it is the only hard requirement).
 - **`PR #N` target requested but `gh` is unavailable** → reject that argument with clear message; the GitHub PR resolution path needs the `gh` CLI.
 - **Agent or verifier never returns** → the Phase 2.75 completion gate re-spawns it once; if still fails, surface it under the `⚠️ PARTIAL REVIEW` banner — never drop it silently.
+- **Report printed, turn ended, no menu** → premature-completion stop (the #1 Phase 4 failure mode). The mandatory menu gate requires the Phase 4 menu in the SAME turn as the report unless every section is "None found." with no appendix — re-present it.
 - **Stale Project Profile after a branch switch** → cache key hashes CLAUDE.md file contents, not mtimes (`git checkout` does not bump mtimes); if discovery looks wrong, the content hash forces a refresh.
 - **Resolved range is huge** (≥20 commits or ≥200 files on the empty-args default) → the large-range scope prompt offers narrower options; skip it only when an explicit argument already declared intent.

@@ -9,6 +9,10 @@ echo "== anonymization gate =="
 bash "$HERE/check-anonymization.sh" || rc=1
 
 echo
+echo "== phase-4 menu invariants gate =="
+bash "$HERE/check-phase4-menu.sh" || rc=1
+
+echo
 echo "== eval schema validation =="
 python3 "$HERE/../skills/review-all/scripts/validate-evals.py" || rc=1
 

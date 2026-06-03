@@ -126,24 +126,20 @@ Every spawned agent and every verifier must have returned with valid JSON, or be
 
 ### Phase 3 — Unified report
 
-Opens with a one-line **Verdict** (`N must-fix before merge`, or ✅ none) for instant triage, then: Intent · Summary · Gate Results · 🔴 Critical · 🟠 Important · 🟡 Debt · 🔵 Suggested · ⚪ Questions · Dependency Changes · Appendix · **Scope footer** (files reviewed / skipped). 🔴/🟠 get full anatomy (failure-mode title, `[severity · confidence]` tag, one-sentence impact, suggested fix, ≤8-line evidence); 🟡/🔵/⚪ collapse to one line each. The last line is a machine-readable `<!-- review-all-severity: {…} -->` comment for CI parsing.
+Opens with a one-line **Verdict** (`N must-fix before merge`, or ✅ none) for instant triage, then: Intent · Summary · Gate Results · 🔴 Critical · 🟠 Important · 🟡 Debt · 🔵 Suggested · ⚪ Questions · Dependency Changes · Appendix · **Scope footer** (files reviewed / skipped). 🔴/🟠 get full anatomy (failure-mode title, `[severity · confidence]` tag, one-sentence impact, suggested fix, ≤8-line evidence); 🟡/🔵/⚪ collapse to one line each. The Summary also reports a **Merge-readiness %** (a transparent resolved/total must-fix ratio that climbs as fixes apply) and **change-type buckets** (files Added/Modified/Deleted/Renamed). The last line is a machine-readable `<!-- review-all-severity: {…} -->` comment for CI parsing; the Phase 4 **Export findings** action additionally emits `review-<ts>.json` + `review-<ts>.sarif` for CI gates.
 
 Heartbeat lines print at each phase boundary so the user sees forward motion on long runs.
 
 ### Phase 4 — Post-report menu
 
-Skipped entirely when every section says "None found." Otherwise a two-step menu:
+Presenting the menu is a **mandatory closing step** — a finished report is the *start* of Phase 4, not the end of the turn (skipped only when every section says "None found." with no appendix). The primary menu (`AskUserQuestion`, single-select, ≤4 options) offers four **modes**:
 
-**Primary fix-scope menu** (`AskUserQuestion`, single-select — only scopes with matching findings are shown):
+- **Fix by scope…** — apply by severity scope (critical / +important / +debt) or a **Custom** expression mixing severity letters and finding IDs/ranges (e.g. `I D #11`, `1-7, 11`).
+- **Triage one-by-one** — walk each must-fix finding with a per-finding micro-menu (Fix · Ask · Create ticket · Snooze · Wontfix · Skip).
+- **More actions…** (multi-select) — Save full report · **Ask a follow-up question** · **Generate tests** · **Create a ticket/issue** · **Export findings (JSON + SARIF)** · Deep-dive · Generate fix patches · Draft commit/PR · Post to GitHub PR · Snooze · Wontfix · Schedule re-review · Re-run on fixed code.
+- **Skip / done.**
 
-- **Fix critical** (Recommended) — apply 🔴 findings
-- **Fix critical + important** — apply 🔴 + 🟠
-- **Fix critical + important + debt** — apply 🔴 + 🟠 + 🟡
-- **Custom (C/I/D/S + #IDs)** — a free-text expression mixing severity letters and finding IDs/ranges (e.g. `I D #11`, `1-7, 11`)
-
-**Extended follow-up menu** (multi-select, opens after the chosen fix action completes; always includes `Skip / done`): Save full report · Deep-dive a finding · Generate fix patches · Draft commit/PR · Post to GitHub PR · Snooze · Mark wontfix · Schedule re-review · Re-run on fixed code. Compose several in one round.
-
-After a clean apply-fixes (all post-fix gates pass), an **auto-delta** scoped review runs against the just-edited files and appends a `## Post-fix delta` section.
+The two fix modes appear only when fixable findings exist; otherwise the menu leads with **More actions…** so the non-fix choices stay reachable (this is the fix that restored discoverability). After a clean apply-fixes (all post-fix gates pass), an **auto-delta** scoped review runs against the just-edited files and appends a `## Post-fix delta` section.
 
 ## Pros / Cons
 
@@ -206,7 +202,7 @@ If a CodeGraph MCP server is wired into Claude Code and the project has a `.code
 
 - [Claude Code CLI](https://docs.claude.com/en/docs/claude-code/overview)
 - `git`, `bash`, `python3` (defaults on macOS/Linux)
-- `gh` — only for `PR #N` review mode
+- `gh` — for `PR #N` review mode, and optionally for the Phase 4 *Post to GitHub PR* (`gh pr comment`) and *Create a ticket/issue* (`gh issue create`) actions; both are write-scoped and confirmation-gated, and Create-ticket falls back to writing an issue-markdown file when `gh`/GitHub isn't present
 
 ## Layout
 

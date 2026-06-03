@@ -61,6 +61,22 @@ A 🔴 CRITICAL finding should be VERIFIED or HIGH confidence — the verifier e
 
 A kept finding that this diff did NOT introduce (it survived the security-audit escape in `_shared.md` — a pre-existing 🔴/🟠 in audited auth/crypto/network/build code) carries a 🟣 marker so the reader instantly sees "not the code you just wrote": `**Finding N**: <title> — `file:line` 🟣 `[🔴 CRITICAL · HIGH]` (pre-existing)`. Introduced-vs-pre-existing is an axis independent of severity — surfacing it lets the reader separate "a bug I wrote" from "a bug I touched".
 
+## Merge-readiness score
+
+A `Merge-readiness` line in the Summary gives a graded companion to the binary Verdict. It is a **transparent ratio, not a weighted score** (Ousterhout's law — no voodoo constants):
+
+- `must_fix_total` = count of 🔴 + 🟠 (only these block merge; 🟡/🔵/⚪ do not).
+- `resolved` = must-fix findings already addressed (0 at the initial report; rises as fixes apply in the Phase 4 loop).
+- `pct = round(100 × resolved / must_fix_total)`.
+- **Special case**: `must_fix_total == 0` AND all run gates pass → `100% — ✅ ready to merge`.
+- **Gate override**: if any gate FAILed/TIMEOUT, never show 100% even with zero must-fix — show the highest the blockers allow and append `(gates failing)`.
+
+So the initial report on a diff with 3 blockers reads `Merge-readiness: 0% — 0/3 must-fix resolved`; after the Phase 4 apply-fixes/auto-delta resolves two, the re-presented report reads `67% — 2/3 must-fix resolved`. This makes the number genuinely useful in the fix loop, and it never invents a confidence it can't defend.
+
+## Change-type buckets
+
+The Summary's **Files Changed** line breaks the diff down by `git` change type (Added/Modified/Deleted/Renamed), computed in Phase 0.8 via `git diff --name-status`. This is informational AND calibrates scrutiny (SKILL.md Rule 7): newly **Added** code gets the strictest bar (no established-convention cover), **Deleted** code gets downstream-breakage scrutiny. Omit any bucket whose count is 0 to keep the line short (e.g. `12 files (+3 new · ~9 modified; +210, -44)`).
+
 ## Report Template
 
 ```markdown
@@ -73,9 +89,10 @@ A kept finding that this diff did NOT introduce (it survived the security-audit 
 
 ## Summary
 - **Target**: {resolved target}
-- **Files Changed**: X files (+Y lines, -Z lines)
+- **Files Changed**: X files (+N new · ~M modified · −K deleted · ▷R renamed; +Y lines, -Z lines)
 - **Language/Framework**: {auto-detected}
 - **Risk Level**: Low / Medium / High
+- **Merge-readiness**: {pct}% — {resolved}/{total} must-fix resolved {| ✅ ready to merge}
 - **Findings**: X 🔴 Critical, Y 🟠 Important, Z 🟡 Debt, W 🔵 Suggested, V ⚪ Questions
 - **Agents run**: {list}
 

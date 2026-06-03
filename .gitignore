@@ -9,6 +9,7 @@ Thumbs.db
 .claude/cache/
 .claude/reports/
 .claude/review-all/
+.claude/*.lock
 
 # Python
 __pycache__/
