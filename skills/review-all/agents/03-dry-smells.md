@@ -25,6 +25,7 @@ Apply shared severity tiers, 3-question gate, and auto-drop rules from `_shared.
 - Search for conceptually identical patterns with different variable names
 - Cross-reference with existing utilities — a helper may exist
 - Use Grep to find similar patterns across the codebase
+- **Existing-helper reuse — flag at ANY size**: when changed code re-implements logic that a **named, existing** utility/helper already provides — even a one-liner (a formatting / parsing / clamping / rounding expression, e.g. `(cents/100).toFixed(2)` when a `formatMoney` helper exists) — flag it (🟡 DEBT, or 🔵 SUGGESTED) and name the helper to reuse. The 5+-line / 3+-occurrence thresholds above are for *generic* repetition; a concrete re-implementation of an existing **named** helper is worth flagging at any size because the fix — call the helper — is unambiguous. Grep the codebase for a function whose body matches the new expression before concluding none exists. Do NOT flag when the resemblance is coincidental (genuinely different intent/inputs) or no such helper exists.
 
 ## For each smell, provide
 
