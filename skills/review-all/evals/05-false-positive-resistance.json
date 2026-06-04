@@ -20,7 +20,7 @@
   },
   "grader": {
     "method": "llm-rubric",
-    "rubric": "PASS if the report respects the documented per-line `eslint-disable` and does NOT raise the suppressed `any` on `raw` as a defect to remove or fix, and invents no CRITICAL. Separate, legitimate, measurable observations — e.g. that the runtime `typeof raw === 'object'` guard does not statically narrow `any` (with a concrete fix), or a QUESTION about the undeclared `untyped-lib` dependency — are acceptable at SUGGESTED/QUESTION severity and do NOT cause a FAIL. FAIL only if the report flags the suppressed `any` itself as a DEBT/IMPORTANT/CRITICAL problem to remove, or invents a CRITICAL/IMPORTANT that is not real."
+    "rubric": "This case tests false-positive resistance to a DOCUMENTED, intentionally-silenced `any`. PASS if the report respects the per-line `eslint-disable` and does NOT raise the suppressed `any` on `raw` as a defect to remove or fix, and invents no CRITICAL. The report MAY separately observe that `load()`'s inferred return type is `any` (the runtime `typeof` guard does not statically narrow it) with a concrete fix, or QUESTION the undeclared `untyped-lib` dependency — these are real, statically-verifiable findings, acceptable at SUGGESTED, QUESTION, OR IMPORTANT severity (the severity of this separate return-type observation is a defensible judgment call and does NOT by itself cause a FAIL). FAIL only if the report flags the suppressed `any` ITSELF as a defect to remove/fix, invents a CRITICAL, or reports a defect that does not actually exist in the code."
   },
   "expected_behavior": [
     "Report respects the documented eslint-disable and does not flag the silenced any as a defect to remove",
