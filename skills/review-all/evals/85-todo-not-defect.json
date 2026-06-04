@@ -1,0 +1,40 @@
+{
+  "id": "85-todo-not-defect",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Precision counter-case (Python). A JobQueue.submit method correctly enqueues ONE job: it validates the payload is a non-empty dict, mints a unique job id, appends a fully-formed record to the in-memory queue, and returns the id. The current single-job responsibility is complete and correct -- every code path is handled for what the method does today. The only added bait is a `# TODO: support batch submission (multiple jobs per call) in a future release` comment marking a PLANNED FUTURE enhancement, NOT a missing case in the present logic. A naive reviewer hardened on 'TODO == unfinished/buggy' might wrongly flag the method as incomplete or as failing to handle the batch case -- but batch submission is explicitly out of scope for this change and the single-job path is correct. Modified-file diff: `before` enqueues a job with NO validation and NO comment; `after` adds the empty-payload guard, the explicit job-record construction, the return of the id, and the forward-looking TODO comment, so the diff is non-empty and the TODO is exactly what must NOT be flagged as a defect.",
+    "files": {
+      "src/jobs/job_queue.py": {
+        "before": "import itertools\nfrom typing import Any\n\n\nclass JobQueue:\n    \"\"\"In-memory FIFO queue of pending jobs.\"\"\"\n\n    def __init__(self) -> None:\n        self._jobs: list[dict[str, Any]] = []\n        self._ids = itertools.count(1)\n\n    def submit(self, payload: dict[str, Any]) -> int:\n        job_id = next(self._ids)\n        self._jobs.append({\"id\": job_id, \"payload\": payload})\n        return job_id\n\n    def pending(self) -> int:\n        return len(self._jobs)\n",
+        "after": "import itertools\nfrom typing import Any\n\n\nclass JobQueue:\n    \"\"\"In-memory FIFO queue of pending jobs.\"\"\"\n\n    def __init__(self) -> None:\n        self._jobs: list[dict[str, Any]] = []\n        self._ids = itertools.count(1)\n\n    def submit(self, payload: dict[str, Any]) -> int:\n        \"\"\"Enqueue a single job and return its assigned id.\"\"\"\n        if not isinstance(payload, dict) or not payload:\n            raise ValueError(\"payload must be a non-empty dict\")\n        # TODO: support batch submission (multiple jobs per call) in a\n        # future release. Single-job submission is the supported API today.\n        job_id = next(self._ids)\n        self._jobs.append({\"id\": job_id, \"payload\": dict(payload), \"status\": \"pending\"})\n        return job_id\n\n    def pending(self) -> int:\n        return len(self._jobs)\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/jobs/job_queue.py"
+      }
+    ],
+    "max_critical": 0
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "This Python file is CORRECT. `JobQueue.submit` (src/jobs/job_queue.py) fully and correctly implements its CURRENT responsibility -- submitting a SINGLE job: it rejects a missing/empty payload with ValueError, mints a unique id, appends a complete job record ({id, payload, status}) to the queue, and returns the id. Every path for what the method does today is handled. The added `# TODO: support batch submission (multiple jobs per call) in a future release` comment marks a PLANNED FUTURE enhancement that is explicitly OUT OF SCOPE for this change; it is NOT a missing case, an unhandled input, or an incomplete branch in the present logic. PASS if the report does NOT raise a correctness/completeness defect against src/jobs/job_queue.py that is triggered by the TODO comment -- i.e. it does NOT claim the method is unfinished/incomplete, does NOT claim batch submission is a missing/unhandled case the change must handle, and does NOT tell the author to remove the TODO. A non-defect note kept at SUGGESTED or QUESTION severity -- e.g. acknowledging the TODO, asking when batch support is planned, suggesting the TODO reference a tracking ticket, or general readability remarks -- is acceptable and does NOT cause a FAIL. FAIL if the report (a) invents a DEBT/IMPORTANT/CRITICAL defect from the TODO/comment (e.g. 'method is incomplete', 'does not handle batch input', 'missing case'), (b) flags the TODO comment itself as something that must be removed or resolved before merge, or (c) invents any other CRITICAL/IMPORTANT correctness finding that is not real for this single-job method."
+  },
+  "expected_behavior": [
+    "No correctness/completeness defect is reported for src/jobs/job_queue.py arising from the TODO comment (single-job submit is complete and correct for its current responsibility)",
+    "The TODO is recognized as a forward-looking FUTURE enhancement out of scope for this change; any mention of it stays at SUGGESTED/QUESTION (e.g. note the TODO, ask about timeline, suggest a tracking ticket) rather than a defect claim",
+    "The added empty-payload guard and explicit job record are recognized as correct hardening of the single-job path",
+    "max_critical = 0 for this file"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim JobQueue.submit is incomplete or unfinished because of the TODO",
+    "Does NOT flag missing batch-submission handling as a defect the change must fix (batch support is an explicit future enhancement, not a missing case)",
+    "Does NOT tell the author to remove or resolve the TODO comment as a precondition to merge",
+    "Does NOT invent an unrelated DEBT/IMPORTANT/CRITICAL correctness defect to justify a finding"
+  ]
+}
