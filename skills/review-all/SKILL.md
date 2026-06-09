@@ -73,6 +73,8 @@ Downstream phases MUST consult `toolchain.available` before invoking a tool. Nev
 
 If `$ARGUMENTS == "init"` → load **`references/init-wizard.md`** and run that flow instead of a review. Exit after the wizard writes the config.
 
+If `$ARGUMENTS` begins with `gate` OR contains the `--ci` flag → **gate mode**: load **`references/phase-gate.md`** and follow it. Strip the `gate` keyword / `--ci` flag and the `--severity <floor>` flag (if present), then parse the REMAINDER as a normal target — so `gate`, `gate --staged`, `gate PR #42 --severity important`, `--ci vs main` all resolve their diff the usual way. Gate mode runs Phases 0–2.75 then emits a machine-readable verdict (`gate-verdict.json` + exit code) with **NO** Phase 3 report and **NO** Phase 4 menu. `--severity` overrides the `gateSeverityFloor` config key.
+
 Otherwise parse `$ARGUMENTS`.
 
 | Argument | Action |
@@ -349,6 +351,8 @@ Detailed menu, triage loop, the three follow-up actions, apply-fixes sub-menu, l
 
 The ONLY condition that skips the menu: every report section reads "None found." AND there is no appendix (no 🔴/🟠/🟡/🔵/⚪ and nothing scoring 50–74). In that one case, state `✅ No actionable findings — nothing to triage.` and stop. In every other case the menu MUST appear.
 
+**Gate mode is exempt** (Step 0.1 / `references/phase-gate.md`): it produces no Phase 3 report and no menu — the `gate-verdict.json` + exit code is its terminal step. The mandatory-menu rule does not apply when the run resolved to gate mode.
+
 Present the **primary menu** via `AskUserQuestion` (single-select, ≤4 options), built dynamically as four MODES: **Fix by scope…**, **Triage one-by-one**, **More actions…**, **Skip / done**. Show the two fix modes only when ≥1 fixable finding (🔴/🟠/🟡) exists; when only 🔵/⚪ exist, drop them and **lead with More actions…**. Full assembly rules, the fix-scope selector (incl. the **Custom** `C/I/D/S + #IDs` grammar — now nested under "Fix by scope…"), the guided triage loop, and the three follow-up actions (Ask a question, Generate tests, Create a ticket) live in `references/phase-4-menu.md`.
 
 Every finding in the report must be numbered (`**Finding N**:`) across all sections including the appendix — the Custom option's `#N` syntax and the per-finding actions depend on it.
@@ -377,7 +381,7 @@ Keep heartbeat output to one line each. Do NOT narrate internal deliberation bet
 ## Important Rules
 
 1. **LOCAL review only** unless the user explicitly picks "Post to PR". Default output is the terminal.
-2. **Always reach the Phase 4 menu.** A finished report is the START of Phase 4, never the end of the turn. Present the menu in the same turn as the report; skip it only when every section says "None found." and there is no appendix (mirrors the Phase 2.75 no-silent-drop rule, applied to the menu).
+2. **Always reach the Phase 4 menu.** A finished report is the START of Phase 4, never the end of the turn. Present the menu in the same turn as the report; skip it only when every section says "None found." and there is no appendix (mirrors the Phase 2.75 no-silent-drop rule, applied to the menu). **Exception: gate mode** (Step 0.1) has no report and no menu — the verdict + exit code is its terminal step.
 3. **Verify everything.** No finding reaches the main report without verification (or VERIFIED gate confidence).
 4. **Evidence required.** Every finding must cite real code. "Might be a problem" is unacceptable.
 5. **No noise.** 3 verified findings beat 20 unverified suggestions.

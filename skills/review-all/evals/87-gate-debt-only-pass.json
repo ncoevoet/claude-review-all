@@ -1,0 +1,33 @@
+{
+  "id": "87-gate-debt-only-pass",
+  "skill": "review-all",
+  "query": "/review-all gate --severity critical",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "files": {
+      "src/format.js": {
+        "before": "export function priceLabel(n) {\n  return `$${n.toFixed(2)}`;\n}\n",
+        "after": "export function priceLabel(n) {\n  return `$${n.toFixed(2)}`;\n}\n\nexport function totalLabel(n) {\n  return `$${n.toFixed(2)}`;\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      "any CRITICAL or IMPORTANT issue — the change only duplicates a trivial one-line formatting expression"
+    ],
+    "gate": { "pass": true, "max_blocking": 0 }
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "Gate mode at severity floor 'critical'. PASS only if BOTH hold: (1) the run terminates with a machine-readable gate verdict (printed JSON and/or gate-verdict.json) where \"pass\": true and \"blockingCount\": 0 — a 🟡 DEBT duplication finding for totalLabel duplicating priceLabel MAY appear in the verdict summary but must NOT block at the critical floor; AND (2) the run does NOT present an interactive Phase 4 menu and does NOT call AskUserQuestion. FAIL if any of: the gate blocks (pass=false) on this non-critical duplication, the run invents a CRITICAL or IMPORTANT finding from a trivial duplicate, or a prose report / interactive menu is the terminal output."
+  },
+  "expected_behavior": [
+    "The duplication is at most 🟡 DEBT and does not meet the critical floor",
+    "Gate verdict has pass=true and blockingCount=0",
+    "No Phase 4 menu in gate mode"
+  ],
+  "expected_not_behavior": [
+    "Gate does NOT block on a DEBT-level duplication at the critical floor",
+    "No AskUserQuestion or Phase 4 interactive menu"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "id": "86-gate-blocking-critical",
+  "skill": "review-all",
+  "query": "/review-all gate --severity critical",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "files": {
+      "src/runner.js": {
+        "before": "const { execFile } = require('child_process');\n\nfunction showRef(name) {\n  return execFile('git', ['show', name]);\n}\n\nmodule.exports = { showRef };\n",
+        "after": "const { exec } = require('child_process');\n\nfunction showRef(name) {\n  return exec(`git show ${name}`);\n}\n\nmodule.exports = { showRef };\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "command-injection",
+        "file": "src/runner.js",
+        "min_severity": "CRITICAL",
+        "verdict": "keep"
+      }
+    ],
+    "gate": { "pass": false, "min_blocking": 1 }
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "Gate mode at severity floor 'critical'. PASS only if BOTH hold: (1) the run terminates with a machine-readable gate verdict (printed JSON and/or gate-verdict.json) where \"pass\": false and \"blockingCount\" >= 1, and the blocking finding is the shell command injection introduced in src/runner.js (switching execFile with an args array to exec with the ref name interpolated straight into the command string), at CRITICAL severity; AND (2) the run does NOT present an interactive Phase 4 menu and does NOT call AskUserQuestion. FAIL if any of: a prose Phase-3 report or menu is the terminal output, pass=true, blockingCount=0, or no critical command-injection finding is the blocker."
+  },
+  "expected_behavior": [
+    "Gate mode runs Phases 0-2.75 then emits a verdict, with no Phase 4 menu",
+    "Command injection in src/runner.js is flagged CRITICAL and kept (score >= 75)",
+    "Gate verdict has pass=false and blockingCount >= 1"
+  ],
+  "expected_not_behavior": [
+    "No AskUserQuestion or Phase 4 interactive menu in gate mode",
+    "No prose Phase 3 report as the terminal output"
+  ]
+}

@@ -52,6 +52,7 @@ Inside Claude Code, run `/review-all` with any of these targets:
 | _file paths_ | Restrict review to those files |
 | `--paths a/b,c/d` | Filter resolved diff to these path prefixes |
 | `--exclude x,y` | Drop these path prefixes from the resolved diff |
+| `gate` / `--ci` | **Headless gate mode** — full review, then a machine verdict (`gate-verdict.json` + exit code) with no Phase 4 menu; composes with any target (`gate --staged`, `gate PR #N`) |
 
 Examples:
 
@@ -63,6 +64,7 @@ Examples:
 /review-all vs main
 /review-all src/auth/login.ts src/auth/session.ts
 /review-all PR #42 --exclude apps/legacy
+/review-all gate --severity critical
 ```
 
 ## How it works — exact steps
@@ -140,6 +142,17 @@ Presenting the menu is a **mandatory closing step** — a finished report is the
 - **Skip / done.**
 
 The two fix modes appear only when fixable findings exist; otherwise the menu leads with **More actions…** so the non-fix choices stay reachable (this is the fix that restored discoverability). After a clean apply-fixes (all post-fix gates pass), an **auto-delta** scoped review runs against the just-edited files and appends a `## Post-fix delta` section.
+
+### Gate mode — headless verdict (CI / autonomous loops)
+
+`/review-all gate` (or any target with `--ci`) runs Phases 0–2.75 unchanged, then **replaces the Phase 3 report and Phase 4 menu with a machine-readable verdict** — no prose, no `AskUserQuestion`. It writes `.claude/review-all/gate-verdict.json`, prints the same JSON, and exits `0` (pass) / `1` (blocked) / `2` (malformed):
+
+```json
+{ "pass": false, "severityFloor": "critical", "partial": false, "blockingCount": 1,
+  "blocking": [ {"id": "F3", "severity": "CRITICAL", "file": "src/x.ts", "line": 42, "title": "unguarded null deref"} ] }
+```
+
+A finding blocks only when its severity meets the floor (`gateSeverityFloor`, default `critical` → 🔴 only; `--severity important` → 🔴+🟠). Only main-report findings (score ≥ 75) gate — the appendix never blocks. Partial review coverage **fails closed**. This is what lets a CI step or an autonomous loop (e.g. the `goal-loop` plugin's oracle) consume review-all as a hard gate. See `skills/review-all/references/phase-gate.md`.
 
 ## Pros / Cons
 
