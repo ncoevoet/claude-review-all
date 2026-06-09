@@ -105,6 +105,7 @@ The Summary's **Files Changed** line breaks the diff down by `git` change type (
 | Tests | … | … |
 | Spec Existence | ✅ PASS / ❌ MISSING(N) | … |
 | Dependencies | ➖ N/A / 📦 CHANGED(+X, -Y, Z bumped) | … |
+| Profile cache | ♻️ HIT / 🔄 MISS(reason) | rules cache from Phase 0 — reason ∈ no-cache, key-mismatch, schema, expired, unreadable |
 
 ## 🔴 **C**ritical
 - **Finding 1**: {failure-mode title naming the real identifier} — `file:line` `[🔴 CRITICAL · VERIFIED]` {🔁 recurring if from history}

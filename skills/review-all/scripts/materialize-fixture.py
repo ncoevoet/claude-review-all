@@ -17,7 +17,16 @@ Supports fixture.kind == "synthetic-diff":
     a symbol (oldName_i -> newName_i) across them (no semantic change).
 
 A fixture whose after-state equals its before-state yields a clean tree (the
-empty-diff edge case). Usage: materialize-fixture.py FIXTURE.json [DEST_DIR]
+empty-diff edge case).
+
+Optional fixture.seed_profile_cache pre-seeds .claude/cache/review-all-profile.json
+AFTER the final staging step (untracked -> invisible to the reviewed diff):
+  - {"raw": {...}}      — write the object verbatim (poisoned/legacy cache cases)
+  - {"rules": "...", "ruleSources": [...]?} — write a VALID v2 profile whose
+    cacheKey/schemaVersion come from running the sibling discover.sh in the
+    materialized repo, so there is exactly one hash implementation.
+
+Usage: materialize-fixture.py FIXTURE.json [DEST_DIR]
 """
 import json
 import os
@@ -36,6 +45,29 @@ def write(repo, rel, content):
     os.makedirs(os.path.dirname(path) or repo, exist_ok=True)
     with open(path, "w") as f:
         f.write(content)
+
+
+def seed_profile_cache(repo, seed):
+    cache_dir = os.path.join(repo, ".claude", "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    target = os.path.join(cache_dir, "review-all-profile.json")
+    if "raw" in seed:
+        with open(target, "w") as f:
+            json.dump(seed["raw"], f)
+        return
+    here = os.path.dirname(os.path.abspath(__file__))
+    out = subprocess.run(["bash", os.path.join(here, "discover.sh"), repo],
+                         check=True, capture_output=True, text=True)
+    disc = json.loads(out.stdout)
+    profile = {
+        "schemaVersion": disc["schemaVersion"],
+        "cacheKey": disc["cacheKey"],
+        "createdAt": "seeded-by-materialize",
+        "rules": {"global": seed.get("rules", "")},
+        "ruleSources": seed.get("ruleSources", ["CLAUDE.md"]),
+    }
+    with open(target, "w") as f:
+        json.dump(profile, f)
 
 
 def main():
@@ -83,6 +115,13 @@ def main():
     # Stage all changes with real content (new files get real blobs, not the
     # empty intent-to-add blob that would surface as a spurious review finding).
     git(repo, "add", "-A")
+
+    # Seed AFTER staging so the cache file stays untracked and never pollutes
+    # the reviewed diff; discover.sh then sees the exact state the review sees.
+    seed = fx.get("seed_profile_cache")
+    if isinstance(seed, dict):
+        seed_profile_cache(repo, seed)
+
     print(repo)
 
 

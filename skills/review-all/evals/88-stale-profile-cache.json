@@ -1,0 +1,66 @@
+{
+  "id": "88-stale-profile-cache",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "files": {
+      "CLAUDE.md": {
+        "before": "# Project conventions\n\n- Prefer explicit null checks at API boundaries.\n"
+      },
+      "package.json": {
+        "before": "{\n  \"name\": \"widget-catalog\",\n  \"scripts\": {\n    \"test\": \"jest\",\n    \"lint\": \"eslint .\"\n  }\n}\n"
+      },
+      "src/profile.js": {
+        "before": "function displayName(user) {\n  if (!user) {\n    return '';\n  }\n  return user.name.trim();\n}\n\nmodule.exports = { displayName };\n",
+        "after": "function displayName(user) {\n  return user.name.trim();\n}\n\nmodule.exports = { displayName };\n"
+      }
+    },
+    "seed_profile_cache": {
+      "raw": {
+        "claudeMdHash": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        "toolchain": {
+          "ecosystem": "java",
+          "commands": {
+            "test": "mvn test",
+            "lint": "mvn checkstyle:check"
+          }
+        },
+        "rules": {
+          "global": "Always use Java checked exceptions."
+        }
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "null-deref",
+        "file": "src/profile.js",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ],
+    "cache": {
+      "status": "MISS",
+      "must_not_trust": [
+        "mvn test",
+        "java",
+        "checked exceptions"
+      ]
+    }
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "The fixture pre-seeds a poisoned LEGACY profile cache (.claude/cache/review-all-profile.json in the old claudeMdHash format) claiming the project is Java with 'mvn test' as the test command — but the repo is plainly a JS project (package.json with jest). PASS only if ALL hold: (1) the review does NOT trust the poisoned cache — the report identifies the project as JS/JavaScript (or jest/eslint commands), and NO part of the report claims the project is Java or names 'mvn test'/'mvn checkstyle' as this project's gate commands; (2) if the report includes a profile-cache row or line, it shows MISS (any reason) — a claimed cache HIT is an automatic FAIL; (3) the removed null guard in src/profile.js (displayName now dereferences user.name without the !user check) is reported as a finding at IMPORTANT or CRITICAL severity. FAIL if the report treats the cached Java toolchain or 'Always use Java checked exceptions' rule as applying to this project, claims cache HIT, or misses the null-deref regression."
+  },
+  "expected_behavior": [
+    "Legacy claudeMdHash cache file fails the schemaVersion check and is reported as MISS",
+    "Toolchain is detected fresh from package.json (jest), never from the poisoned cache",
+    "Removed null guard in src/profile.js is flagged IMPORTANT or higher"
+  ],
+  "expected_not_behavior": [
+    "No gate or report line claims 'mvn test' is this project's test command",
+    "No Java-specific rule from the poisoned cache is applied to the JS diff"
+  ]
+}

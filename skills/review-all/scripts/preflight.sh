@@ -6,7 +6,7 @@
 set -u
 
 declare -A REQUIRED=( [git]=1 )
-TOOLS=(git timeout lsof ss gh jq curl rsync)
+TOOLS=(git timeout lsof ss gh jq curl rsync python3)
 
 declare -A AVAIL
 missing_required=""

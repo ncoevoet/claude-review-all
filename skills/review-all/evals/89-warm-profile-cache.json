@@ -1,0 +1,55 @@
+{
+  "id": "89-warm-profile-cache",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "files": {
+      "CLAUDE.md": {
+        "before": "# Project conventions\n\n- NEVER call console.log in library code under src/lib/ — use the logger module (src/lib/logger.js) instead.\n"
+      },
+      "package.json": {
+        "before": "{\n  \"name\": \"parcel-tracker\",\n  \"scripts\": {\n    \"test\": \"jest\"\n  }\n}\n"
+      },
+      "src/lib/logger.js": {
+        "before": "const levels = ['debug', 'info', 'warn', 'error'];\n\nfunction log(level, message) {\n  if (!levels.includes(level)) {\n    throw new Error('unknown level: ' + level);\n  }\n  process.stderr.write(`[${level}] ${message}\\n`);\n}\n\nmodule.exports = { log };\n"
+      },
+      "src/lib/format.js": {
+        "after": "const { log } = require('./logger');\n\nfunction formatLabel(parcel) {\n  console.log('formatting parcel', parcel.id);\n  return `${parcel.id} — ${parcel.destination}`.toUpperCase();\n}\n\nmodule.exports = { formatLabel };\n"
+      }
+    },
+    "seed_profile_cache": {
+      "rules": "NEVER call console.log in library code under src/lib/ — use the logger module (src/lib/logger.js) instead.",
+      "ruleSources": [
+        "CLAUDE.md"
+      ]
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "console-log-in-lib",
+        "file": "src/lib/format.js",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ],
+    "cache": {
+      "status": "HIT",
+      "rules_applied_from_cache": true
+    }
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "The fixture pre-seeds a VALID v2 profile cache whose extracted global rules contain the project rule 'NEVER call console.log in library code under src/lib/ — use the logger module'. The new file src/lib/format.js violates that rule (console.log call in src/lib/). PASS only if BOTH hold: (1) the report's profile-cache row/line shows HIT (a MISS means the valid cache was wrongly invalidated — FAIL); (2) the console.log call in src/lib/format.js is reported as a finding at any severity tier (DEBT or higher is fine), grounded in the project convention (referencing the CLAUDE.md rule or the logger module as the required alternative) — proving the CACHED rules were actually applied, not merely skipped. FAIL if the report shows MISS, omits any profile-cache status, or does not flag the console.log-in-src/lib violation."
+  },
+  "expected_behavior": [
+    "discover.sh reports the seeded cache as HIT (key matches, schema v2, fresh)",
+    "Global rules come from cachedProfile.rules.global without re-reading CLAUDE.md",
+    "console.log in src/lib/format.js is flagged as violating the project rule, with the logger module as the fix"
+  ],
+  "expected_not_behavior": [
+    "No spurious MISS / re-extraction of rules on a valid warm cache",
+    "The violation is not silently dropped just because rules came from cache"
+  ]
+}

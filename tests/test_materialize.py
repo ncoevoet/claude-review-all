@@ -67,6 +67,30 @@ class TestMaterialize(unittest.TestCase):
     def test_unsupported_shape_exits_3(self):
         self.assertEqual(materialize({"fixture": {"kind": "description-only"}}).returncode, 3)
 
+    def test_seed_raw_writes_verbatim_and_stays_out_of_diff(self):
+        raw = {"claudeMdHash": "abc", "toolchain": {"test": "mvn test"}}
+        p = materialize({"fixture": {"kind": "synthetic-diff",
+                                     "files": {"a.ts": {"before": "x\n", "after": "y\n"}},
+                                     "seed_profile_cache": {"raw": raw}}})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        repo = p.stdout.strip()
+        with open(os.path.join(repo, ".claude", "cache", "review-all-profile.json")) as f:
+            self.assertEqual(json.load(f), raw)
+        self.assertNotIn("review-all-profile", git_diff(repo))
+
+    def test_seed_rules_yields_discover_hit(self):
+        p = materialize({"fixture": {"kind": "synthetic-diff",
+                                     "files": {"CLAUDE.md": {"before": "# Never use eval\n"},
+                                               "a.ts": {"before": "x\n", "after": "y\n"}},
+                                     "seed_profile_cache": {"rules": "Never use eval"}}})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        repo = p.stdout.strip()
+        discover = os.path.join(os.path.dirname(SCRIPT), "discover.sh")
+        out = subprocess.run(["bash", discover, repo], capture_output=True, text=True)
+        disc = json.loads(out.stdout)
+        self.assertEqual(disc["cache"]["status"], "HIT", disc["cache"])
+        self.assertEqual(disc["cachedProfile"]["rules"]["global"], "Never use eval")
+
 
 if __name__ == "__main__":
     unittest.main()

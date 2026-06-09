@@ -9,8 +9,7 @@ User explicitly invoked `/review-all init`. Do NOT auto-trigger from a missing c
 ## Pre-checks
 
 1. If `.claude/review-all.json` already exists → ask via `AskUserQuestion` whether to overwrite, merge, or cancel.
-2. Run Phase 0.0 preflight first (so wizard knows which optional tools are available; mention any missing ones in the summary at end).
-3. Run Phase 0.3 (language/framework detection) — needed to suggest sensible defaults.
+2. Run Phase 0.0 discovery first (`bash scripts/discover.sh`) — its one call covers tool availability AND language/framework detection; mention any missing tools in the summary at end and use the detected toolchain to suggest sensible defaults.
 
 ## Questions (via `AskUserQuestion`, one at a time)
 

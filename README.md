@@ -73,15 +73,17 @@ Examples:
 
 | Step | What it does | Why |
 |---|---|---|
-| 0.0 Preflight | Runs `scripts/preflight.sh` to probe `git`/`timeout`/`lsof`/`ss`/`gh`/`jq`/`curl`/`rsync` | One JSON readout lets later phases degrade instead of crashing on a missing tool |
+| 0.0 Discovery (one call) | Runs `scripts/discover.sh` — composes the preflight tool probe (`git`/`timeout`/`lsof`/`ss`/`gh`/`jq`/`curl`/`rsync`/`python3`), toolchain detection, test-pattern detection, `.codegraph/` check, and the rules-cache verdict in a SINGLE script call | Phase 0 costs one round trip regardless of cache state; later phases degrade instead of crashing on a missing tool |
 | 0.1 Resolve target | Parses `$ARGUMENTS` against the table above | Single source of truth for "what diff is being reviewed" |
-| 0.2 Load config + cache | Reads `.claude/review-all.json`; reuses cached Project Profile if CLAUDE.md hashes match | Avoids re-running detection on hot paths |
-| 0.3 + 0.4 Toolchain | `scripts/detect-toolchain.sh` emits `{ecosystem, framework, test, lint, typecheck, build}` | Project-agnostic gate commands; never assumes Angular vs Spring vs Rust |
-| 0.5 Project rules | Reads root + nested CLAUDE.md files | "NEVER do X / ALWAYS do Y" steer the agents |
-| 0.6 Test patterns | `scripts/test-pattern-probe.sh` infers location, suffix, framework | Spec Existence Check uses this; no hardcoded `__tests__` assumption |
-| 0.7 CodeGraph + MCP | Probes the live MCP tool registry; records `toolchain.codegraphTools` keyed by capability | Tool names are not hardcoded — survives MCP-server renames |
+| 0.2 Load config + rules cache | Reads `.claude/review-all.json`; on cache HIT reuses the LLM-extracted global rules from `.claude/cache/review-all-profile.json` | Only the expensive LLM work (rules extraction) is cached — toolchain commands are re-probed fresh every run, so a `package.json`/`pom.xml` change can never be served stale |
+| 0.3 + 0.4 Toolchain | Folded into 0.0 — `detect-toolchain.sh` emits `{ecosystem, framework, test, lint, typecheck, build}` | Project-agnostic gate commands; never assumes Angular vs Spring vs Rust |
+| 0.5 Project rules | Reads root + nested CLAUDE.md files; the global half is skipped on cache HIT, module-level CLAUDE.md (changed dirs) always read fresh | "NEVER do X / ALWAYS do Y" steer the agents |
+| 0.6 Test patterns | Folded into 0.0 — `test-pattern-probe.sh` infers location, suffix, framework | Spec Existence Check uses this; no hardcoded `__tests__` assumption |
+| 0.7 CodeGraph + MCP | Probes the live MCP tool registry (skipped entirely when 0.0 found no `.codegraph/`); records `toolchain.codegraphTools` keyed by capability | Tool names are not hardcoded — survives MCP-server renames |
 | 0.8 Gather diff | Computes diff + per-file slice, applies `--paths`/`--exclude`, recent commit log | Filter is enforced before any agent sees the diff |
-| 0.9 Output dirs | Creates `.claude/cache`, `.claude/reports`, `.claude/review-all` | First run on a fresh repo never crashes on a missing dir |
+| 0.9 Output dirs + cache write | Creates `.claude/cache`, `.claude/reports`, `.claude/review-all`; on cache MISS writes the v2 rules profile | First run on a fresh repo never crashes on a missing dir |
+
+The rules cache is keyed on a manifest of per-file content hashes over every repo `CLAUDE.md` (+ root `CLAUDE.local.md`), carries a schema version, and expires after 7 days — a branch switch, a CLAUDE.md edit, or a legacy cache file all force a fresh extraction. The report's gate table shows `Profile cache: HIT / MISS(reason)` so cache behavior is always visible (and eval-gradeable).
 
 ### Phase 1 — Deterministic gates (in parallel)
 
@@ -134,7 +136,7 @@ Heartbeat lines print at each phase boundary so the user sees forward motion on 
 
 ### Phase 4 — Post-report menu
 
-Presenting the menu is a **mandatory closing step** — a finished report is the *start* of Phase 4, not the end of the turn (skipped only when every section says "None found." with no appendix). The primary menu (`AskUserQuestion`, single-select, ≤4 options) offers four **modes**:
+Presenting the menu is a **mandatory closing step** — a finished report is the *start* of Phase 4, not the end of the turn (skipped only when every section says "None found." with no appendix). Ordering is a hard rule: the full report renders as text first, then the menu immediately after it with zero tool calls in between — so the menu can never appear before (or without) the report — and the menu's question line repeats the verdict summary in case the report has scrolled off-screen. The primary menu (`AskUserQuestion`, single-select, ≤4 options) offers four **modes**:
 
 - **Fix by scope…** — apply by severity scope (critical / +important / +debt) or a **Custom** expression mixing severity letters and finding IDs/ranges (e.g. `I D #11`, `1-7, 11`).
 - **Triage one-by-one** — walk each must-fix finding with a per-finding micro-menu (Fix · Ask · Create ticket · Snooze · Wontfix · Skip).
@@ -154,12 +156,24 @@ The two fix modes appear only when fixable findings exist; otherwise the menu le
 
 A finding blocks only when its severity meets the floor (`gateSeverityFloor`, default `critical` → 🔴 only; `--severity important` → 🔴+🟠). Only main-report findings (score ≥ 75) gate — the appendix never blocks. Partial review coverage **fails closed**. This is what lets a CI step or an autonomous loop (e.g. the `goal-loop` plugin's oracle) consume review-all as a hard gate. See `skills/review-all/references/phase-gate.md`.
 
+## How it's tested & improved
+
+Every change to this skill is **eval-driven** — the same develop-tests loop Anthropic recommends for agent harnesses:
+
+- **89 labeled scenarios** (`skills/review-all/evals/*.json`) across Java, TypeScript, Python, SQL, Go, and Rust. Most are *recall* cases (a planted real bug the review must catch: races, leaks, injections, N+1s, broken contracts…); a growing set are **precision counter-cases** — correct code that looks suspicious (an intentional `except Exception` boundary, a consistent lock discipline, a neutralized CSV export, a TODO comment) that must **NOT** become a finding. Two cases exercise gate mode end-to-end; two guard the profile cache (a poisoned legacy cache must MISS, a valid warm cache must HIT *and* still apply its rules).
+- **Headless LLM-graded runner** (`scripts/run-evals-headless.sh`): each fixture is materialized into a throwaway git repo, `/review-all` runs there via `claude -p`, and a second LLM call grades the report against the case's rubric. Single runs flicker (LLM output is non-deterministic), so trustworthy baselines use `REVIEW_ALL_EVAL_RUNS=3+` and compare pass-*rates*.
+- **A/B before shipping**: persona or verifier edits are measured against the relevant eval subset with and without the change — a change that doesn't move recall without hurting precision is reverted.
+- **No-API CI gates** on every push (`tests/run.sh`): anonymization check (no real project names in fixtures), eval-schema validation, shellcheck on all scripts, Python unit tests, and a static doc-invariant gate for the Phase 4 menu (`tests/check-phase4-menu.sh`) — the menu can't be exercised headlessly, so its invariants are grepped from the published docs instead.
+- **Every real-world escape becomes a case**: a missed bug or a false positive observed in actual use is converted into a new eval before the fix lands, so it can never regress silently.
+
+See `skills/review-all/evals/README.md` for the schema, the full scenario list, and the iteration loop.
+
 ## Pros / Cons
 
 | Pros | Cons |
 |---|---|
 | **No false positives by design** — every finding survives adversarial re-read | Two-pass model (agents + verifier) costs more tokens than a single-shot review |
-| **Project-agnostic** — discovers conventions from the repo, never assumes them | Discovery adds ~3–8s of startup on the first run per repo (cached after) |
+| **Project-agnostic** — discovers conventions from the repo, never assumes them | Discovery probes run on every review (one script call, ~1s); only the CLAUDE.md rules extraction is cached — by design, so toolchain data is never stale |
 | **Filtered scope** — `--paths`/`--exclude` and interactive workspace pruning honor the user's actual focus | The multi-workspace prompt only fires above 50 files / multiple roots — adjust expectations on small repos |
 | **Deterministic ops in scripts** — preflight, toolchain, test-pattern, dev-server, dedupe, state-sweep all live in `scripts/`. Reliability + token savings + auditable | Requires bash + Python 3 on the developer machine (default on macOS/Linux; fine in WSL) |
 | **Hostile verifier on Haiku** — cheap, fast, no confirmation bias | Verifier mis-scoring on truly novel patterns can hide a real finding in the appendix — escape via `verifierModel: "sonnet"` |
@@ -226,8 +240,9 @@ claude-review-all/
 │   ├── agents/               # 10 persona files + _shared.md + verifier.md
 │   ├── references/           # per-phase rules, config schema, state-file lifecycle
 │   ├── evals/                # labeled scenarios + success criteria + grader rubrics
-│   └── scripts/              # preflight, detect-toolchain, dev-server-probe,
-│                             # test-pattern-probe, dedupe, state-sweep, validate-evals,
+│   └── scripts/              # discover (one-call Phase 0), preflight, detect-toolchain,
+│                             # dev-server-probe, test-pattern-probe, dedupe, state-sweep,
+│                             # gate-verdict, export-findings, validate-evals,
 │                             # materialize-fixture, run-evals, run-evals-headless
 ├── tests/                    # unit tests + check-anonymization.sh (gitignored blocklist)
 └── .github/workflows/ci.yml  # shellcheck + test suite (incl. anonymization + eval-schema gates)

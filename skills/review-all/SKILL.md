@@ -39,17 +39,25 @@ You are a comprehensive, project-agnostic code review orchestrator. You combine 
 
 ---
 
-## Phase 0.0: Preflight — Tool Availability
+## Phase 0.0: Preflight + Discovery — One Call
 
-**Goal**: Probe required and optional binaries once, up front, so later phases degrade instead of crashing when a tool is missing.
+**Goal**: probe tools, toolchain, test patterns, and the rules cache in a SINGLE script call, so Phase 0 costs one round trip regardless of cache state.
 
 Execute the bundled script.
 
 ```bash
-bash scripts/preflight.sh
+bash scripts/discover.sh
 ```
 
-The script emits a JSON object like `{"git":true,"timeout":false,...}` to stdout and exits non-zero if `git` (the only hard requirement) is missing. Parse the JSON into the Project Profile as `toolchain.available`.
+It composes `preflight.sh` (tool availability), `detect-toolchain.sh` (steps 0.3 + 0.4), `test-pattern-probe.sh` (step 0.6), probes `.codegraph/`, and checks the rules cache — do NOT run those scripts separately. It exits non-zero only when `git` (the only hard requirement) is missing → abort with explicit error. Parse its single JSON output into the Project Profile:
+
+| Field | Goes to | Meaning |
+|-------|---------|---------|
+| `available` | `toolchain.available` | per-binary availability map — see table below |
+| `toolchain` | `toolchain.ecosystem`/`framework`/`commands` | discovered gate commands; empty string = "not found — gate self-skips" |
+| `testPattern` | `toolchain.testPattern` | test location/suffix/framework — feeds the Spec Existence Check |
+| `codegraphIndex` | — | gates Step 0.7: `false` → skip the ToolSearch probe entirely |
+| `cacheKey` / `cache` / `cachedProfile` | Step 0.2 | rules-cache verdict (`HIT`/`MISS(reason)`) and the cached rules when HIT |
 
 | Tool | Required? | If missing |
 |------|-----------|------------|
@@ -60,6 +68,8 @@ The script emits a JSON object like `{"git":true,"timeout":false,...}` to stdout
 | `gh`   | optional | the `PR #N` target in Step 0.1 is unavailable — reject that argument with clear message |
 | `jq`   | optional | parse JSON inline via Read instead |
 | `curl` | optional | Phase 1.5 runtime probe is skipped |
+| `rsync` | optional | only the manual installer (`make install`) uses it — the review flow never requires it |
+| `python3` | optional | `dedupe.py` / `state-sweep.py` / `export-findings.py` / `gate-verdict.py` need it. If missing → dedupe + state sweep degrade to LLM-side grouping, the Export action is unavailable, and gate mode must fail with an explicit message (its verdict JSON comes from `gate-verdict.py`). Rules cache degrades to MISS when `jq` is also missing. |
 
 Downstream phases MUST consult `toolchain.available` before invoking a tool. Never assume.
 
@@ -138,42 +148,44 @@ If `.claude/review-all.json` exists, read it. Schema (jsonc — written as plain
 ```
 All keys optional — use defaults if missing.
 
-If `.claude/cache/review-all-profile.json` exists AND its `claudeMdHash` matches the current sha256 of the sorted concatenation of all loaded CLAUDE.md file **contents**, reuse the cached Project Profile and skip steps 0.3–0.5. Otherwise proceed and refresh the cache at the end of Phase 0. (Hash content, not mtimes — `git checkout` does not bump mtimes, so an mtime-based hash would survive a branch switch and silently serve stale data.)
+**Rules cache** (verdict already computed by `discover.sh` in Step 0.0):
+
+- `cache.status == "HIT"` → take the extracted global rules from `cachedProfile.rules.global` and skip the GLOBAL half of Step 0.5. On HIT do NOT re-read root CLAUDE.md or any file listed in `cachedProfile.ruleSources`. Module-level CLAUDE.md files in changed-file directories are still read fresh (Step 0.5 — diff-scoped, never cached).
+- `cache.status == "MISS"` → run Step 0.5 in full, then write the cache at the end of Phase 0 (see Step 0.9).
+
+Cached profile schema v2 — `.claude/cache/review-all-profile.json`:
+
+```json
+{
+  "schemaVersion": 2,
+  "cacheKey": "<copied verbatim from discover.sh output>",
+  "createdAt": "<ISO timestamp>",
+  "rules": { "global": "<extracted global rules text>" },
+  "ruleSources": ["CLAUDE.md", "docs/conventions.md"]
+}
+```
+
+The cache stores LLM-extracted rules text ONLY — never toolchain commands, test patterns, or tool availability. Those are re-probed fresh by `discover.sh` on every run, so they can never be served stale (a `package.json`/`pom.xml` change takes effect immediately, cache or no cache). The key covers every repo CLAUDE.md plus root `CLAUDE.local.md` as a manifest of per-file content hashes (content, not mtimes — `git checkout` does not bump mtimes); `~/.claude/CLAUDE.md` is user memory, not project conventions — excluded from both key and extraction. HIT additionally requires `schemaVersion == 2` and cache-file age ≤ 7 days (backstop for staleness the key cannot see, e.g. an edited guide referenced from CLAUDE.md). Legacy `claudeMdHash`-era cache files fail the schema check → MISS.
 
 ### Step 0.3 + 0.4 — Detect Language, Framework, and Toolchain
 
-Execute the bundled script.
-
-```bash
-bash scripts/detect-toolchain.sh
-```
-
-Output JSON: `{"ecosystem":"js","framework":"angular","test":"ng test","lint":"ng lint","typecheck":"npx tsc --noEmit","build":"ng build"}`. Empty strings mean "not found — gate self-skips". Parse into Project Profile under `toolchain.commands` and `toolchain.ecosystem`/`toolchain.framework`.
-
-If a field is empty AND the CI config (`.github/workflows/`, `.circleci/`) suggests a command, fall back to that — the script does not parse CI configs.
+Folded into Step 0.0 — `discover.sh` already ran `detect-toolchain.sh`; do NOT run it separately. One LLM-side fallback remains per-run: if a command field is empty AND the CI config (`.github/workflows/`, `.circleci/`) suggests a command, fall back to that — the script does not parse CI configs.
 
 ### Step 0.5 — Discover Project Rules
 
-Read CLAUDE.md files for conventions:
-1. Root `CLAUDE.md`
-2. Module-level `CLAUDE.md` in directories of changed files
-3. Files referenced from `CLAUDE.md` (guides, patterns)
+Two halves with different cache behavior:
 
-Extract: naming conventions, architectural constraints, "NEVER do X" / "ALWAYS do Y" directives, framework rules.
+**Global rules** (cached — skipped on cache HIT, see Step 0.2): read root `CLAUDE.md` and files it references (guides, patterns). Extract: naming conventions, architectural constraints, "NEVER do X" / "ALWAYS do Y" directives, framework rules. Record the files read as `ruleSources` for the cache write.
+
+**Module rules** (never cached — always read fresh): module-level `CLAUDE.md` in directories of changed files. The set depends on the diff, so caching them under a diff-independent key would serve module X's rules to a review of module Y.
 
 ### Step 0.6 — Detect Test Patterns
 
-Execute the bundled script.
-
-```bash
-bash scripts/test-pattern-probe.sh
-```
-
-Output JSON: `{"pattern":"co-located","suffix":".spec.ts","framework":"jest"}`. Parse into Project Profile under `toolchain.testPattern`. Spec Existence Check (Phase 1) uses these fields to compute expected test paths for new source files.
+Folded into Step 0.0 — `discover.sh` already ran `test-pattern-probe.sh`; do NOT run it separately. The `testPattern` fields feed the Spec Existence Check (Phase 1).
 
 ### Step 0.7 — CodeGraph Detection & MCP tool resolution
 
-Check for `.codegraph/`. If present, agents may use codegraph tools for cross-file analysis (callers, impact).
+If Step 0.0 reported `codegraphIndex: false` → set `toolchain.codegraphTools = {}` and skip this step entirely (no ToolSearch round trip). Otherwise agents may use codegraph tools for cross-file analysis (callers, impact) — resolve the tool names now. MCP names are never cached: the registry is session-scoped, and re-validating a cached name costs the same one ToolSearch call that full resolution costs.
 
 **MCP tool names are NOT hardcoded.** Different hosts namespace MCP tools differently (`codegraph:codegraph_callers` vs `mcp__codegraph__codegraph_callers` vs other), so the orchestrator resolves them at runtime:
 
@@ -193,9 +205,7 @@ This makes the skill portable across MCP namespaces and survives codegraph-serve
 - Build a per-file slice of the diff (for diff-slicing in Phase 2)
 - Store everything as internal Project Profile (do NOT print to user yet)
 
-Refresh `.claude/cache/review-all-profile.json` if discovery was re-run.
-
-### Step 0.9 — Ensure Output Directories Exist
+### Step 0.9 — Ensure Output Directories Exist, Write Rules Cache on MISS
 
 Before any later phase writes, create the directories used by this orchestrator (idempotent — only run once per invocation).
 
@@ -204,6 +214,8 @@ mkdir -p .claude/cache .claude/reports .claude/review-all
 ```
 
 Without this, the first `Write` to `.claude/review-all/history.jsonl`, `.claude/review-all/state.json`, or `.claude/review-all/shots/...` on fresh repo crashes.
+
+If Step 0.0 reported a cache MISS: after the `mkdir`, write `.claude/cache/review-all-profile.json` using the v2 schema from Step 0.2, copying `schemaVersion` and `cacheKey` VERBATIM from the discover output — never recompute the key yourself (one hash implementation lives in `discover.sh`).
 
 ---
 
@@ -351,6 +363,8 @@ Detailed menu, triage loop, the three follow-up actions, apply-fixes sub-menu, l
 
 The ONLY condition that skips the menu: every report section reads "None found." AND there is no appendix (no 🔴/🟠/🟡/🔵/⚪ and nothing scoring 50–74). In that one case, state `✅ No actionable findings — nothing to triage.` and stop. In every other case the menu MUST appear.
 
+**Report-before-menu ordering (hard rule).** Emit the COMPLETE Phase 3 report as user-visible text FIRST; the `AskUserQuestion` menu call must be the IMMEDIATELY NEXT action — zero tool calls between the report text and the menu call (no Write, no Bash, no export). Text emitted between tool calls may not render for the user, and the interactive menu pins to the prompt — any tool call in between makes the menu appear before (or without) the report. Artifact writes (report file, exports) happen only after a menu choice. Calling the menu before the report text is the mirror failure of skipping the menu: the user cannot triage findings they have not seen. The menu's question text MUST carry the verdict summary (`Review done — N must-fix: X 🔴, Y 🟠 (+Z optional). Full report above ↑`) so the choice is decidable even when the report has scrolled off-screen.
+
 **Gate mode is exempt** (Step 0.1 / `references/phase-gate.md`): it produces no Phase 3 report and no menu — the `gate-verdict.json` + exit code is its terminal step. The mandatory-menu rule does not apply when the run resolved to gate mode.
 
 Present the **primary menu** via `AskUserQuestion` (single-select, ≤4 options), built dynamically as four MODES: **Fix by scope…**, **Triage one-by-one**, **More actions…**, **Skip / done**. Show the two fix modes only when ≥1 fixable finding (🔴/🟠/🟡) exists; when only 🔵/⚪ exist, drop them and **lead with More actions…**. Full assembly rules, the fix-scope selector (incl. the **Custom** `C/I/D/S + #IDs` grammar — now nested under "Fix by scope…"), the guided triage loop, and the three follow-up actions (Ask a question, Generate tests, Create a ticket) live in `references/phase-4-menu.md`.
@@ -365,7 +379,7 @@ Long-running orchestration is silent by default — that triggers user-interrupt
 
 The lines below are the **canonical templates**. If you have all the data they need, emit them verbatim. If a value is unknown (e.g. elapsed not yet measurable, runtime probe skipped), substitute a one-word free-form line that still tells user where you are (`Phase 0: profile built — 9 files, 2 commits.`). Both forms are acceptable; what is NOT acceptable is silence between phase boundaries or chatty per-agent narration.
 
-- After Phase 0 ends: `Phase 0: profile built, <N> files in target (elapsed <S>s)`
+- After Phase 0 ends: `Phase 0: profile built, <N> files in target, rules cache <HIT|MISS(reason)> (elapsed <S>s)`
 - After Phase 1 ends: `Phase 1: typecheck=<R>, lint=<R>, tests=<R>, runtime=<R> (elapsed <S>s)`
 - During Phase 2, when each agent returns: `Phase 2: <K>/<N> agents returned (elapsed <S>s)` — one line per return is OK; do not also narrate each agent's finding count.
 - After Phase 2.75 completion gate: `Phase 2.75: <K> agents verified, <M> findings kept, <X> appendix, <Y> dropped (elapsed <S>s)`
@@ -408,9 +422,9 @@ User says: "pre-commit check on my staged files"
 
 ## Common Issues
 
-- **`git` missing in Phase 0.0 preflight** → abort with explicit error; nothing in the skill works without git (it is the only hard requirement).
+- **`git` missing in Phase 0.0 discovery** → `discover.sh` exits non-zero; abort with explicit error — nothing in the skill works without git (it is the only hard requirement).
 - **`PR #N` target requested but `gh` is unavailable** → reject that argument with clear message; the GitHub PR resolution path needs the `gh` CLI.
 - **Agent or verifier never returns** → the Phase 2.75 completion gate re-spawns it once; if still fails, surface it under the `⚠️ PARTIAL REVIEW` banner — never drop it silently.
 - **Report printed, turn ended, no menu** → premature-completion stop (the #1 Phase 4 failure mode). The mandatory menu gate requires the Phase 4 menu in the SAME turn as the report unless every section is "None found." with no appendix — re-present it.
-- **Stale Project Profile after a branch switch** → cache key hashes CLAUDE.md file contents, not mtimes (`git checkout` does not bump mtimes); if discovery looks wrong, the content hash forces a refresh.
+- **Stale rules after a branch switch** → the cache key (computed by `discover.sh`) hashes CLAUDE.md file contents, not mtimes (`git checkout` does not bump mtimes), so a branch switch changes the key → MISS → fresh extraction. Toolchain commands and tool availability are never cached at all — re-probed every run. Legacy `claudeMdHash`-era cache files auto-MISS on the schema check.
 - **Resolved range is huge** (≥20 commits or ≥200 files on the empty-args default) → the large-range scope prompt offers narrower options; skip it only when an explicit argument already declared intent.

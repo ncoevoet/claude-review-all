@@ -33,6 +33,9 @@ echo "check-phase4-menu: asserting menu invariants in SKILL.md / phase-4-menu.md
 # --- SKILL.md: mandatory menu gate + allowed-tools + the four primary modes ---
 need "$SKILL" 'MUST present the Phase 4 menu in the SAME turn' "mandatory-menu gate sentence"
 need "$SKILL" 'every report section reads .None found' "only-skip condition"
+need "$SKILL" 'Report-before-menu ordering' "report-before-menu ordering rule"
+need "$SKILL" 'zero tool calls between the report text and the menu call' "zero-tool-calls-between sentence"
+need "$SKILL" 'Full report above' "verdict summary in menu question text"
 need "$SKILL" 'Bash\(gh pr comment:\*\)' "allowed-tools: gh pr comment"
 need "$SKILL" 'Bash\(gh issue create:\*\)' "allowed-tools: gh issue create"
 need "$SKILL" 'Fix by scope' "primary mode: Fix by scope"
@@ -52,6 +55,9 @@ need "$MENU" 'Ask a follow-up question' "action: Ask a follow-up question"
 need "$MENU" 'Generate tests' "action: Generate tests"
 need "$MENU" 'Create a ticket' "action: Create a ticket/issue"
 need "$MENU" 'Export findings' "action: Export findings (JSON + SARIF)"
+need "$MENU" 'Report-before-menu ordering' "report-before-menu ordering rule"
+need "$MENU" 'zero tool calls between the report text and the menu call' "zero-tool-calls-between sentence"
+need "$MENU" 'Full report above' "verdict summary in menu question text"
 
 # --- phase-4-menu.md: triage micro-menu — all six verbs + the 6-vs-4 resolution ---
 need "$MENU" 'Fix this' "triage verb: Fix this"

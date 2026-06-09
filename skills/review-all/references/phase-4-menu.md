@@ -4,6 +4,8 @@ Loaded by `/review-all` Phase 4. Presents the post-report menu (three modes), th
 
 **Mandatory menu gate.** Presenting this menu is the closing step of every review, not an optional extra — see the gate in SKILL.md Phase 4. After printing the Phase 3 report you MUST present the primary menu via `AskUserQuestion` **in the same turn**. The ONLY case that skips it: every report section reads "None found." AND there is no appendix — then state `✅ No actionable findings — nothing to triage.` and stop. Ending the turn on the report without the menu is a silent failure (the #1 Phase 4 failure mode after a long `effort: high` review).
 
+**Report-before-menu ordering (hard rule).** Emit the COMPLETE Phase 3 report as user-visible text FIRST; the `AskUserQuestion` menu call must be the IMMEDIATELY NEXT action — zero tool calls between the report text and the menu call (no Write, no Bash, no export). Text emitted between tool calls may not render for the user, and the interactive menu pins to the prompt — any tool call in between makes the menu appear before (or without) the report, leaving the user to choose blind. Artifact writes (saving the report, exports) happen only after a menu choice. The menu's question text MUST carry the verdict summary (`Review done — N must-fix: X 🔴, Y 🟠 (+Z optional). Full report above ↑`) so the choice is decidable even when the report has scrolled off-screen.
+
 ## Table of Contents
 
 - [Primary menu — three modes](#primary-menu--three-modes)

@@ -19,6 +19,8 @@ Per case (ERROR = fails the gate):
       * OR rename_only truthy AND files_changed is an int >= 1
   - the fixture yields a reviewable diff (a changed/added/deleted file, or
     rename_only) UNLESS the id is on EMPTY_DIFF_ALLOWLIST (the no-op edge case)
+  - fixture.seed_profile_cache (optional) is an object with either a 'raw'
+    object (written verbatim) or a non-empty 'rules' string (valid v2 profile)
 
 WARN (informational, does not fail): grader.method != llm-rubric, unknown
 per-file keys (likely a before/after typo), missing success_criteria.
@@ -115,6 +117,16 @@ def validate_case(path):
 
     if not has_diff and stem not in EMPTY_DIFF_ALLOWLIST:
         errors.append(f"{name}: fixture yields an empty diff (nothing to review) and is not allowlisted")
+
+    seed = fx.get("seed_profile_cache")
+    if seed is not None:
+        if not isinstance(seed, dict):
+            errors.append(f"{name}: fixture.seed_profile_cache must be an object")
+        elif "raw" in seed:
+            if not isinstance(seed["raw"], dict):
+                errors.append(f"{name}: seed_profile_cache.raw must be an object")
+        elif not _nonempty_str(seed.get("rules")):
+            errors.append(f"{name}: seed_profile_cache needs 'raw' (verbatim) or non-empty 'rules' (valid v2)")
 
     return errors, warnings
 
