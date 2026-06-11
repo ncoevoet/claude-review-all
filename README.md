@@ -18,10 +18,10 @@ Inside Claude Code, add the marketplace and install the plugin:
 
 ```
 /plugin marketplace add ncoevoet/claude-review-all
-/plugin install review-all@ncoevoet
+/plugin install review-all@ncoevoet-review-all
 ```
 
-`/review-all` is available right away. Update later with `/plugin update review-all@ncoevoet`, remove with `/plugin uninstall review-all@ncoevoet`. CLI equivalents work too: `claude plugin marketplace add ncoevoet/claude-review-all` then `claude plugin install review-all@ncoevoet`. The plugin bundles the skill's `scripts/` and resolves them relative to the skill, so it works wherever Claude Code installs it.
+`/review-all` is available right away. Update later with `/plugin update review-all@ncoevoet-review-all`, remove with `/plugin uninstall review-all@ncoevoet-review-all`. CLI equivalents work too: `claude plugin marketplace add ncoevoet/claude-review-all` then `claude plugin install review-all@ncoevoet-review-all`. The plugin bundles the skill's `scripts/` and resolves them relative to the skill, so it works wherever Claude Code installs it.
 
 ### Manual (`make install`)
 

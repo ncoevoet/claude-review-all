@@ -1,5 +1,5 @@
 {
-  "name": "ncoevoet",
+  "name": "ncoevoet-review-all",
   "description": "Marketplace for review-all — comprehensive, project-agnostic, multi-agent code review for Claude Code.",
   "owner": {
     "name": "Nicolas Coevoet"
@@ -8,7 +8,7 @@
     {
       "name": "review-all",
       "source": "./",
-      "version": "0.4.0",
+      "version": "0.6.0",
       "description": "Comprehensive, project-agnostic, multi-agent code review for Claude Code with verification to eliminate false positives.",
       "author": {
         "name": "Nicolas Coevoet",
