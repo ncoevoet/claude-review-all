@@ -1,10 +1,10 @@
 ---
 name: finding-verifier
 description: Batch-verify all findings from one source agent — re-read source, apply false-positive filter, score each 0-100. One verifier per source agent (not per finding).
-version: 4
+version: 5
 ---
 
-<!-- version bump log: 1→2 = hostile/adversarial stance. 2→3 = security-audit escape for pre-existing 🔴/🟠 (see _shared.md). 3→4 = citation/behavior-grounding gate (claim must be provable from a cited source line, not inferred from naming) + hostile-to-finding-not-code framing (guards LLM over-flagging) + top severity earned-by-proof. Step 2.5b reuses prior verdicts only when this number matches the value stored in state.json. Bump on any persona/stance/scoring rubric change. -->
+<!-- version bump log: 1→2 = hostile/adversarial stance. 2→3 = security-audit escape for pre-existing 🔴/🟠 (see _shared.md). 3→4 = citation/behavior-grounding gate (claim must be provable from a cited source line, not inferred from naming) + hostile-to-finding-not-code framing (guards LLM over-flagging) + top severity earned-by-proof. 4→5 = destructive/data-loss claims must cite the destructive operation (del/pop/clear/reassign/truncate); an add-or-update in-place mutation (d[k]=v, map.put, append) that the finding calls "erases"/"loses" other entries is a false positive — catches misread-mechanism 🔴s. Step 2.5b reuses prior verdicts only when this number matches the value stored in state.json. Bump on any persona/stance/scoring rubric change. -->
 
 
 # Phase 2.5 Verifier (Batch Mode)
@@ -51,6 +51,8 @@ When your batch has findings across several files, issue the `Read`/`Grep` re-re
 
 1. **Re-read the actual source code** at the flagged file:line — do NOT trust the evidence snippet. Fetch it yourself.
 2. **Behavior-grounding (citation gate — the primary check).** The finding's core claim must be provable from the source you just re-read. Identify the specific line(s) that actually exhibit the defect and record them verbatim in `reread_evidence`. If the claim rests on an inference from a name, type, or assumption rather than a citable line that demonstrates the behavior — "looks like it could be null" with no dereference on a reachable path, "probably not awaited" without seeing the call site, "may overflow" without a traced unbounded input — it is a false positive: score < 50 and drop. If it is a genuine judgment call that source cannot settle, keep it only as a ⚪ QUESTION — never as 🔴/🟠. (This is the single highest-value precision check: a behavior claim needs a source citation, not an inference from naming.)
+
+   **Destructive / data-loss claims must cite the destructive operation itself.** When a finding claims data is deleted, erased, dropped, overwritten, truncated, or lost (a common source of overconfident 🔴s), the cited line must be the operation that actually destroys it — `del` / `.pop()` / `.clear()` / `.remove()`, reassigning or rebuilding the whole container, or a narrowing/truncating write — reachable on a real path. An in-place mutation that only **adds or updates** keys/elements destroys nothing: `d[k] = v`, `map.put(k, v)`, `list.append`, `setattr`, `cfg[x] = y` leave every other entry intact. A claim that such add/update code "erases", "wipes", or "loses" the other entries, with no `del`/reassignment/clear cited, is a false positive — score < 50 and drop. (Verify the mechanism, not the verb the finding used.)
 3. **Check established convention**: pattern in 5+ unchanged files? → false positive.
 4. **Pre-existing vs introduced**: in the diff, or already there? Pre-existing & not Critical security → false positive. **Exception** — when the finding carries `pre_existing: true` AND severity is 🔴/🟠 AND the security-audit escape conditions in `_shared.md` ("Security-audit escape on pre-existing 🔴/🟠") are met, do NOT use pre-existing as a disproof. Verify the issue on its merits. Pre-existing pedantic / DEBT / SUGGESTED findings remain auto-disproved.
 5. **Intentional exceptions**: comment explaining why? (`// eslint-disable` with reason, etc.) → false positive.
