@@ -2,6 +2,20 @@
 
 Loaded by `/review-all` Phase 3. Synthesizes verified findings into a structured markdown report read in a terminal by the engineer who wrote the diff. Optimize for **fast triage**: the reader should learn in one line whether anything blocks merge, then act on each must-fix finding without re-investigating it.
 
+## Contents
+
+- [Verdict line (top of report)](#verdict-line-top-of-report)
+- [Intent summary](#intent-summary)
+- [Numbering](#numbering)
+- [Severity-letter emphasis](#severity-letter-emphasis)
+- [Finding anatomy — full for must-fix, one line for optional](#finding-anatomy--full-for-must-fix-one-line-for-optional)
+- [Severity encodes confidence at the top tier](#severity-encodes-confidence-at-the-top-tier)
+- [Pre-existing findings get a 🟣 marker](#pre-existing-findings-get-a--marker)
+- [Merge-readiness score](#merge-readiness-score)
+- [Change-type buckets](#change-type-buckets)
+- [Report Template](#report-template)
+- [Section rules](#section-rules)
+
 ## Verdict line (top of report)
 
 The first line after the title is a one-line verdict, so the reader triages before reading anything else:

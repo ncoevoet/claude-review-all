@@ -1,6 +1,6 @@
 {
   "name": "review-all",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Comprehensive, project-agnostic, multi-agent code review for Claude Code with verification to eliminate false positives.",
   "author": {
     "name": "Nicolas Coevoet",

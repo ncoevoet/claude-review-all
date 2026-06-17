@@ -1,6 +1,17 @@
 # /review-all
 
-Project-agnostic code review for [Claude Code](https://docs.claude.com/en/docs/claude-code/overview). One slash command runs deterministic gates, ten parallel review agents, and an adversarial verification pass. Every finding cites `file:line` and is independently re-checked before the report — false positives stay out.
+[![CI](https://github.com/ncoevoet/claude-review-all/actions/workflows/ci.yml/badge.svg)](https://github.com/ncoevoet/claude-review-all/actions/workflows/ci.yml)
+[![version](https://img.shields.io/badge/version-0.6.1-blue)](.claude-plugin/plugin.json)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)](https://code.claude.com/docs/en/plugins)
+
+Project-agnostic code review for [Claude Code](https://code.claude.com/docs/en/overview). One slash command runs deterministic gates, ten parallel review agents, and an adversarial verification pass. Every finding cites `file:line` and is independently re-checked before the report — false positives stay out.
+
+## Demo
+
+> _Demo coming soon._ Run `/review-all` on a diff to see the severity-tiered findings, each with a `file:line` cite, render in your own terminal.
+
+<!-- TODO(demo): capture a screenshot/GIF of a real review report into docs/demo.png and replace the note above with: ![review report](docs/demo.png) -->
 
 ## Severity tiers
 
@@ -227,7 +238,7 @@ If a CodeGraph MCP server is wired into Claude Code and the project has a `.code
 
 ## Requirements
 
-- [Claude Code CLI](https://docs.claude.com/en/docs/claude-code/overview)
+- [Claude Code CLI](https://code.claude.com/docs/en/overview)
 - `git`, `bash`, `python3` (defaults on macOS/Linux)
 - `gh` — for `PR #N` review mode, and optionally for the Phase 4 *Post to GitHub PR* (`gh pr comment`) and *Create a ticket/issue* (`gh issue create`) actions; both are write-scoped and confirmation-gated, and Create-ticket falls back to writing an issue-markdown file when `gh`/GitHub isn't present
 
