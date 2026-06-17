@@ -9,9 +9,9 @@ Project-agnostic code review for [Claude Code](https://code.claude.com/docs/en/o
 
 ## Demo
 
-> _Demo coming soon._ Run `/review-all` on a diff to see the severity-tiered findings, each with a `file:line` cite, render in your own terminal.
+![/review-all report](docs/demo.png)
 
-<!-- TODO(demo): capture a screenshot/GIF of a real review report into docs/demo.png and replace the note above with: ![review report](docs/demo.png) -->
+One verdict line up top, automated gate results, then findings by severity — Critical/Important carry full anatomy (impact · suggested fix · evidence), Debt/Suggested collapse to one line each. Every finding cites `file:line` and is independently re-verified before it reaches the report.
 
 ## Severity tiers
 
