@@ -304,11 +304,13 @@ Read `references/phase-2-agents.md` (sibling of this file) for diff-slice mappin
 - `agents/09-api-contract.md` — API & Contract (conditional)
 - `agents/10-a11y-i18n.md` — A11y & i18n (conditional)
 
-For each agent you spawn: pass its persona + `_shared.md` (concatenated) + the diff slice as the prompt. Wrap each part in XML tags so the agent parses the prompt unambiguously — `<persona>`, `<shared_rules>`, `<project_profile>`, and `<diff>` (Anthropic prompt-structuring best practice for prompts that mix instructions with variable inputs). Before spawning, substitute these placeholders in the concatenated text:
+For each agent you spawn: pass its persona + `_shared.md` (concatenated) + the diff slice as the prompt. Wrap each part in XML tags so the agent parses the prompt unambiguously — `<persona>`, `<shared_rules>`, `<project_profile>`, and `<diff>` (Anthropic prompt-structuring best practice for prompts that mix instructions with variable inputs). When the dismissed-finding digest (above) is non-empty, add a `<previously_dismissed>` block to every agent. Before spawning, substitute these placeholders in the concatenated text:
 - `${codegraphTools.X}` — from the runtime-resolved map from Step 0.7.
 - `${quota.debt}` / `${quota.suggested}` / `${quota.question}` — from config keys `quotaDebt` (default `5`), `quotaSuggested` (default `3`), `quotaQuestion` (default `2`) in `.claude/review-all.json`. Config value of `0` disables that per-agent quota.
 
 Include the per-file `changeTypes` from Step 0.8 in `<project_profile>` so agents apply Rule 7's change-type scrutiny weighting — strictest bar on newly **Added** files (no established-convention cover), downstream-breakage focus on **Deleted** files.
+
+**Dismissed-finding digest.** Before spawning agents, read `stateFile` (`.claude/review-all/state.json`; absent → empty). Collect entries with `status: wontfix`, or `status: snoozed` with a future `snoozed_until`; cap at the 30 most-recently-seen. Render each as `[WONTFIX | SNOOZED until <date>] <root_cause_key> @ <file_line> (<severity>)` and include the list in every agent prompt as `<previously_dismissed>` (omit the tag entirely when the list is empty). This feeds the team's own review-history back to the agents so they skip re-deriving findings the team already dismissed at a still-unchanged location — saving generation and verifier spend — while the Phase 2.5 Step 2.5.0 central drop stays the guarantee. Agents match on diff-membership, not a recomputed hash (see `agents/_shared.md` → Previously-dismissed findings): a dismissed location that this diff changed is raised normally, since the dismissal may no longer hold.
 
 Apply `extraAgents` and `skipAgents` from `.claude/review-all.json`.
 
@@ -325,6 +327,8 @@ Two-step flow:
 2. **Batch verify** — one verifier agent per source agent, in parallel.
 
 Threshold (full table in the reference): score ≥ 75 → main report; 50–74 → appendix; < 50 → drop. VERIFIED gate findings auto-keep at 90.
+
+When `verifierVotes > 1` (config, default `1`), 🔴/🟠 survivors get majority-vote re-verification before the threshold is final — see the reference's **Step 2.5b-vote**. 🟡/🔵/⚪ stay single-pass.
 
 ---
 

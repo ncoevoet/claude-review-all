@@ -23,7 +23,7 @@ To reduce token duplication, send each agent only the diff slice it needs:
 | API & Contract (09) | Files with public exports / schemas / routes / migrations |
 | A11y & i18n (10) | UI files + translation files only |
 
-All agents also receive: changed file list, Project Profile, CLAUDE.md rules, Phase 1 gate results, and PR description if applicable. (Snoozed/`wontfix` findings filtered later in Phase 2.5 from `stateFile` — agents do not need the suppression list.)
+All agents also receive: changed file list, Project Profile, CLAUDE.md rules, Phase 1 gate results, PR description if applicable, and the `<previously_dismissed>` digest of `wontfix` / non-expired-`snoozed` findings from `stateFile` (built in SKILL.md Phase 2). Agents suppress a matching finding only when its location is **unchanged in this diff** — see `agents/_shared.md` → Previously-dismissed findings. (This reverses the earlier "agents don't need the suppression list" stance: feeding the team's own dismissals up front spares re-deriving and re-verifying them; the Phase 2.5 Step 2.5.0 central filter still drops any that slip through, so it remains the guarantee — the digest is a spend-saving hint, not the gate.)
 
 ## Agents to spawn
 

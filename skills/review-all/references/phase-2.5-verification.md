@@ -39,11 +39,29 @@ Persona: `verifier.md`. Spawn ONE verifier per source agent, IN PARALLEL — eac
 
 Each verifier receives: source agent's findings, the **diff hunks and source for the files its findings reference** (not the whole diff or all source files), Project Profile, CLAUDE.md rules, and the cross-agent confirmation map (to apply the +10 cross-confirmation bonus). Scoping the input to the findings' files — instead of pre-loading the entire diff once per source agent — is the main verifier token saving and costs no precision: the verifier is already instructed to re-read the cited `file:line` itself (step 1), and uses `Read`/`Grep` on demand for the occasional cross-file check ("pattern in 5+ files", "handled by a caller elsewhere"). Snoozed/`wontfix` findings already filtered in Step 2.5.0 — verifier never sees them.
 
+## Step 2.5b-vote — Majority-vote re-verification (top severity only)
+
+Skip this step entirely when `verifierVotes` (config-keys.md, default `1`) is `1` — the single Step 2.5b pass is final. When `verifierVotes > 1`, the first pass is not final for 🔴/🟠 findings; a single hostile verifier can mis-score a genuinely novel top-severity finding (the skill's documented weak spot), so re-verify those independently and decide by majority.
+
+1. **Collect high-severity survivors.** Take every finding the first pass scored `keep` or `appendix` at **🔴 CRITICAL or 🟠 IMPORTANT** (after the cross-confirmation bonus). DEBT / SUGGESTED / QUESTION are never re-voted — they are capped already and the extra cost is not justified. Findings tagged `VERIFIED` from Phase 1 gates skip voting (the tool is the proof — same fast path as single-pass).
+2. **Spawn the extra votes.** Re-batch those high-severity survivors **by source agent** and spawn `verifierVotes − 1` additional `verifier.md` instances per affected source agent — one extra batch per source-agent-with-high-sev per extra vote, NOT one verifier per finding. Each extra verifier is a fresh instance with the same scoped inputs as the first pass and **no shared context** with the first pass or the other extra votes — independence is the whole point of voting.
+3. **Decide by majority** across the `verifierVotes` independent verdicts each finding now has (the original Step 2.5b verdict + the extra passes):
+   - **keep** (main report) iff ⌈`verifierVotes` / 2⌉ or more passes returned `keep`.
+   - else if a majority returned `keep` or `appendix` (i.e. not `drop`) → **appendix**.
+   - else → **drop**.
+   - Recorded score = **median** of the per-pass scores (stable against a single outlier pass).
+   - Even `verifierVotes` with no strict keep-majority (a tie) → demote to appendix; a tie never keeps top severity. Odd N avoids ties — recommended.
+4. **Completion gate still applies.** The extra-vote verifiers are spawned verifiers — Phase 2.75 requires each to return valid JSON, retries once, else surfaces `⚠️ PARTIAL REVIEW`. A high-severity finding whose extra votes did not all return is decided on the votes that did return (never silently dropped).
+
+Cost: voting multiplies only the high-severity batch-verifier calls, and only when `verifierVotes > 1`. A review with zero 🔴/🟠 survivors costs exactly the single-pass amount regardless of the setting.
+
 ## Threshold
 
 - Score ≥ 75 → main report (`keep`)
 - Score 50–74 → "Potential Issues" appendix (`appendix`)
 - Score < 50 → silently dropped (`drop`)
+
+When `verifierVotes > 1`, the threshold above sets each individual verifier's verdict; the final keep/appendix/drop for a 🔴/🟠 finding is the majority decision from Step 2.5b-vote, not a single pass's score.
 
 Findings tagged `confidence: VERIFIED` from Phase 1 gates skip verification entirely (auto-keep at 90).
 

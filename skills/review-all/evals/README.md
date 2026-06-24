@@ -126,7 +126,25 @@ Leave `REVIEW_ALL_EVAL_EFFORT` UNSET to measure at the real operating point. On 
 
 LLM review/grade output is non-deterministic, so a single run is a noisy signal (a clean case can flip PASS↔FAIL between runs). For a trustworthy baseline — and before attributing a prompt change to a score delta — set `REVIEW_ALL_EVAL_RUNS` to 3+ and compare pass-rates, not single results. A review that errors out (empty/`API Error`) is retried once and, if still bad, reported as `ERROR` (not `FAIL`) so infra flakes don't masquerade as quality regressions.
 
-For each case it materializes the fixture into a throwaway temp git repo (`scripts/materialize-fixture.py`), runs `/review-all` there via `claude -p`, then grades the report against the case's `grader.rubric` with a second `claude -p` call. Prints `RESULT,<id>,PASS|FAIL` lines so you can diff scores across prompt revisions. Requires the `claude` CLI; the fixture repos are isolated and disposable.
+For each case it materializes the fixture into a throwaway temp git repo (`scripts/materialize-fixture.py`), runs `/review-all` there via `claude -p`, then grades the report against the case's `grader.rubric` with a second `claude -p` call. Prints `RESULT,<id>,PASS|FAIL` lines so you can diff scores across prompt revisions, plus a `SCORE,<id>,<crit>,<imp>,<debt>,<sug>,<q>,<total>` line per graded run (parsed from the report's `<!-- review-all-severity -->` tally) that feeds the scorecard below. Requires the `claude` CLI; the fixture repos are isolated and disposable.
+
+### Scorecard — aggregate recall / precision / SNR
+
+Per-case `PASS|FAIL` answers "did this case work"; it does not answer "what is the suite's precision". `scripts/eval-scorecard.py` aggregates the runner's `RESULT`/`SCORE` lines (from a file or stdin) into a suite-level scorecard:
+
+```bash
+bash ../scripts/run-evals-headless.sh | tee results.txt
+python3 ../scripts/eval-scorecard.py results.txt      # or: ... | python3 ../scripts/eval-scorecard.py
+```
+
+It classifies each case from its `success_criteria`: **recall** when `must_detect` is present, **precision counter-case** otherwise (correct code that must NOT be flagged), and reports:
+
+- **Recall%** — pass-rate over recall cases.
+- **Precision%** — pass-rate over precision counter-cases (noise-resistance).
+- **F1** — harmonic mean of the two.
+- **SNR (proxy)** — `signal / noise` finding counts from the `SCORE` lines: signal = 🔴+🟠 findings on recall cases (capped per case at its `must_detect` count, so one over-flagging recall case can't inflate it); noise = 🔴+🟠 findings on precision counter-cases. It is a **proxy** — suite-derived from the case labels and the report's severity tally, **not** a CR-Bench-style per-comment ground-truth SNR — reported as approximate. Recall/Precision/F1 need only `RESULT` lines (works against an old results file with no harness change); SNR additionally needs `SCORE` lines and is omitted when absent.
+
+The last printed line is machine-readable (`SCORECARD,recall=…,precision=…,f1=…,snr=…,signal=…,noise=…`) so an A/B run can diff precision/SNR before and after a prompt change, not just the per-case PASS rate.
 
 ### Manual (no API — quick smoke check)
 

@@ -17,6 +17,10 @@
 #                             (the model reports fewer of the bugs it actually found),
 #                             so a run at --effort low understates the skill. The skill
 #                             pins `effort: high` in its frontmatter as a floor anyway.
+#   REVIEW_ALL_CONFIG_JSON=…  JSON written as .claude/review-all.json into each
+#                             materialized fixture (after staging, so untracked).
+#                             Use to A/B config-driven features, e.g.
+#                             '{"verifierVotes":3}'.
 #
 # Prereqs:
 #   - `claude` CLI on PATH, authenticated.
@@ -42,6 +46,24 @@ rubric() {
 print(g.get('rubric','') or '\n'.join(d.get('expected_behavior',[])))" "$1"
 }
 bad_report() { [[ -z "${1// }" || "$1" == *"API Error"* || "$1" == *"Execution error"* ]]; }
+# Extract per-tier counts from the report's machine-readable severity comment
+# (phase-3-report.md: `<!-- review-all-severity: {...} -->`). Echoes
+# "c,i,d,s,q,total"; exits non-zero when the comment is absent.
+sev_line() {
+  printf '%s' "$1" | python3 -c '
+import sys, re, json
+m = None
+for line in sys.stdin:
+    mm = re.search(r"review-all-severity:\s*(\{.*?\})\s*-->", line)
+    if mm:
+        m = mm.group(1)
+if not m:
+    sys.exit(1)
+d = json.loads(m)
+v = [int(d.get(k, 0)) for k in ("critical", "important", "debt", "suggested", "question")]
+print(",".join(str(x) for x in v + [sum(v)]))
+'
+}
 
 eff=()
 [[ -n "${REVIEW_ALL_EVAL_EFFORT:-}" ]] && eff=(--effort "$REVIEW_ALL_EVAL_EFFORT")
@@ -68,10 +90,18 @@ for f in "$EVALS"/*.json; do
   cp=0; graded=0
   for ((r=1; r<=runs; r++)); do
     repo=$(python3 "$HERE/materialize-fixture.py" "$f") || continue
+    # Optional A/B treatment config: write it AFTER materialization so it stays
+    # untracked (invisible to the reviewed diff) — lets a run exercise config-
+    # driven features (e.g. verifierVotes) the fixtures can't otherwise carry.
+    if [[ -n "${REVIEW_ALL_CONFIG_JSON:-}" ]]; then
+      mkdir -p "$repo/.claude"
+      printf '%s\n' "$REVIEW_ALL_CONFIG_JSON" > "$repo/.claude/review-all.json"
+    fi
     report=$(review_once "$repo" "$prompt")
     bad_report "$report" && report=$(review_once "$repo" "$prompt")   # one retry
     if bad_report "$report"; then rm -rf "$repo"; continue; fi
     graded=$((graded+1))
+    sc=$(sev_line "$report") && [[ -n "$sc" ]] && echo "SCORE,$id,$sc"
     judge=$(printf 'You are grading a code-review report against a rubric. Reason briefly, then on the LAST line output exactly PASS or FAIL.\n\n<rubric>\n%s\n</rubric>\n\n<report>\n%s\n</report>\n' \
         "$rb" "$report" | "${to[@]}" claude -p --dangerously-skip-permissions 2>/dev/null)
     if echo "$judge" | grep -qiE '\bPASS\b' && ! echo "$judge" | tail -1 | grep -qiE '\bFAIL\b'; then

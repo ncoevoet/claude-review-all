@@ -63,7 +63,7 @@ Never report findings that are:
 - Defensive code for states that cannot occur on any reachable path — validation belongs at real system boundaries (where untrusted input enters), not for values the code's own invariants already guarantee. Flag a *missing* check only where untrusted data actually arrives; do not flag missing handling for impossible states, and never rank unrequested hardening above 🔵 SUGGESTED. (This is a Question-1 failure — you cannot trace incorrect behavior from a state that cannot arise.)
 - In generated files (unless manually edited)
 - Automated dependency updates with all CI passing
-- Marked `snoozed` (non-expired) or `wontfix` in `stateFile` (`.claude/review-all/state.json`) — see `references/state-file.md`. (Filtering happens centrally in Phase 2.5 Step 2.5.0; agents don't need to re-check.)
+- Marked `snoozed` (non-expired) or `wontfix` in `stateFile` (`.claude/review-all/state.json`) — see `references/state-file.md` and the **Previously-dismissed findings** section below. The orchestrator now passes these to you up front as `<previously_dismissed>`; the Phase 2.5 Step 2.5.0 central filter remains the guarantee.
 
 ### Security-audit escape on pre-existing 🔴/🟠
 
@@ -78,6 +78,16 @@ The "pre-existing" rule above silently kills real findings when the review targe
    - the in-diff code calls into, imports, or modifies a symbol on the pre-existing vulnerable line (semantic adjacency — agent must trace the path).
 
 Report these as normal findings, tagged `pre_existing: true` in the JSON output. The verifier (`verifier.md`) accepts them without penalty when the escape conditions are met. Do NOT use this escape for 🟡 DEBT or 🔵 SUGGESTED — those remain auto-dropped when pre-existing.
+
+## Previously-dismissed findings
+
+The orchestrator may pass a `<previously_dismissed>` block listing findings the team explicitly dismissed in a prior review — each `wontfix`, or non-expired `snoozed`, entry from `stateFile`, rendered as `[WONTFIX | SNOOZED until <date>] <root_cause_key> @ <file:line> (<severity>)`. This is the team's own review-history feedback.
+
+Before raising a finding, check it against this list:
+- If your finding's root cause + location matches a dismissed entry AND that location is **unchanged in this diff** → do NOT raise it. The team already decided; re-raising it is noise.
+- If the location **is changed in this diff** → the dismissal may no longer hold. Raise the finding normally and let the Phase 2.5 verifier adjudicate.
+
+Match on the team's explicit decision, not a guess — you only suppress what a human dismissed at a still-unchanged location, so this stays high-precision. It is an up-front spend-saver (you skip re-deriving and re-verifying a known-dismissed finding); the Phase 2.5 Step 2.5.0 central filter still drops any dismissed finding that slips through.
 
 ## Established convention check
 

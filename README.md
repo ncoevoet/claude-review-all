@@ -1,7 +1,7 @@
 # /review-all
 
 [![CI](https://github.com/ncoevoet/claude-review-all/actions/workflows/ci.yml/badge.svg)](https://github.com/ncoevoet/claude-review-all/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-0.6.1-blue)](.claude-plugin/plugin.json)
+[![version](https://img.shields.io/badge/version-0.7.0-blue)](.claude-plugin/plugin.json)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)](https://code.claude.com/docs/en/plugins)
 
@@ -173,7 +173,7 @@ Every change to this skill is **eval-driven** — the same develop-tests loop An
 
 - **89 labeled scenarios** (`skills/review-all/evals/*.json`) across Java, TypeScript, Python, SQL, Go, and Rust. Most are *recall* cases (a planted real bug the review must catch: races, leaks, injections, N+1s, broken contracts…); a growing set are **precision counter-cases** — correct code that looks suspicious (an intentional `except Exception` boundary, a consistent lock discipline, a neutralized CSV export, a TODO comment) that must **NOT** become a finding. Two cases exercise gate mode end-to-end; two guard the profile cache (a poisoned legacy cache must MISS, a valid warm cache must HIT *and* still apply its rules).
 - **Headless LLM-graded runner** (`scripts/run-evals-headless.sh`): each fixture is materialized into a throwaway git repo, `/review-all` runs there via `claude -p`, and a second LLM call grades the report against the case's rubric. Single runs flicker (LLM output is non-deterministic), so trustworthy baselines use `REVIEW_ALL_EVAL_RUNS=3+` and compare pass-*rates*.
-- **A/B before shipping**: persona or verifier edits are measured against the relevant eval subset with and without the change — a change that doesn't move recall without hurting precision is reverted.
+- **A/B before shipping**: persona or verifier edits are measured against the relevant eval subset with and without the change — a change that doesn't move recall without hurting precision is reverted. `scripts/eval-scorecard.py` turns the runner's per-case `RESULT`/`SCORE` lines into a suite-level **recall % / precision % / F1 / SNR** scorecard, so an A/B diffs an aggregate precision number, not just per-case PASS rates (the SNR is an honest suite-derived proxy, not a CR-Bench per-comment metric).
 - **No-API CI gates** on every push (`tests/run.sh`): anonymization check (no real project names in fixtures), eval-schema validation, shellcheck on all scripts, Python unit tests, and a static doc-invariant gate for the Phase 4 menu (`tests/check-phase4-menu.sh`) — the menu can't be exercised headlessly, so its invariants are grepped from the published docs instead.
 - **Every real-world escape becomes a case**: a missed bug or a false positive observed in actual use is converted into a new eval before the fix lands, so it can never regress silently.
 
@@ -187,8 +187,8 @@ See `skills/review-all/evals/README.md` for the schema, the full scenario list, 
 | **Project-agnostic** — discovers conventions from the repo, never assumes them | Discovery probes run on every review (one script call, ~1s); only the CLAUDE.md rules extraction is cached — by design, so toolchain data is never stale |
 | **Filtered scope** — `--paths`/`--exclude` and interactive workspace pruning honor the user's actual focus | The multi-workspace prompt only fires above 50 files / multiple roots — adjust expectations on small repos |
 | **Deterministic ops in scripts** — preflight, toolchain, test-pattern, dev-server, dedupe, state-sweep all live in `scripts/`. Reliability + token savings + auditable | Requires bash + Python 3 on the developer machine (default on macOS/Linux; fine in WSL) |
-| **Hostile verifier on Haiku** — cheap, fast, no confirmation bias | Verifier mis-scoring on truly novel patterns can hide a real finding in the appendix — escape via `verifierModel: "sonnet"` |
-| **Lifecycle-aware** — snoozed/wontfix/stale tracked in `state.json`; recurring findings auto-escalate after 3 sightings | State file is per-repo; not shared across team members. Intentional — comments are the team-wide channel |
+| **Hostile verifier on Haiku** — cheap, fast, no confirmation bias | Verifier mis-scoring on truly novel patterns can hide a real finding in the appendix — escape via `verifierModel: "sonnet"`, or `verifierVotes: 3` to majority-vote 🔴/🟠 across independent passes |
+| **Lifecycle-aware** — snoozed/wontfix/stale tracked in `state.json`; dismissed findings are fed back to the agents as a `<previously_dismissed>` digest so the team's own wontfix decisions aren't re-derived; recurring findings auto-escalate after 3 sightings | State file is per-repo; not shared across team members. Intentional — comments are the team-wide channel |
 | **Plugin-free install** — `make install` and you're done | Not portable to claude.ai uploads or the Claude API runtime (uses git/gh/bash/filesystem). Claude Code only |
 
 ## Optional configuration
@@ -201,10 +201,13 @@ Common keys:
 {
   "devServerPorts": [4200, 5173, 3000],
   "verifierModel": "haiku",
+  "verifierVotes": 1,
   "extraAgents": [],
   "skipAgents": []
 }
 ```
+
+`verifierVotes` defaults to `1` (single hostile pass). Set it to an odd `N>1` (e.g. `3`) to majority-vote the 🔴/🟠 findings across `N` independent verifier passes — a finding reaches the main report only if ⌈N/2⌉ verifiers keep it. Voting is scoped to top severity (🟡/🔵/⚪ stay single-pass) and adds verifier cost only when 🔴/🟠 survivors exist; see `references/config-keys.md`.
 
 ### Finding-count caps
 
@@ -254,7 +257,8 @@ claude-review-all/
 │   └── scripts/              # discover (one-call Phase 0), preflight, detect-toolchain,
 │                             # dev-server-probe, test-pattern-probe, dedupe, state-sweep,
 │                             # gate-verdict, export-findings, validate-evals,
-│                             # materialize-fixture, run-evals, run-evals-headless
+│                             # materialize-fixture, run-evals, run-evals-headless,
+│                             # eval-scorecard (recall/precision/SNR aggregate)
 ├── tests/                    # unit tests + check-anonymization.sh (gitignored blocklist)
 └── .github/workflows/ci.yml  # shellcheck + test suite (incl. anonymization + eval-schema gates)
 ```
