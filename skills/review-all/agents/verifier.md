@@ -1,10 +1,10 @@
 ---
 name: finding-verifier
 description: Batch-verify all findings from one source agent — re-read source, apply false-positive filter, score each 0-100. One verifier per source agent (not per finding).
-version: 5
+version: 6
 ---
 
-<!-- version bump log: 1→2 = hostile/adversarial stance. 2→3 = security-audit escape for pre-existing 🔴/🟠 (see _shared.md). 3→4 = citation/behavior-grounding gate (claim must be provable from a cited source line, not inferred from naming) + hostile-to-finding-not-code framing (guards LLM over-flagging) + top severity earned-by-proof. 4→5 = destructive/data-loss claims must cite the destructive operation (del/pop/clear/reassign/truncate); an add-or-update in-place mutation (d[k]=v, map.put, append) that the finding calls "erases"/"loses" other entries is a false positive — catches misread-mechanism 🔴s. Step 2.5b reuses prior verdicts only when this number matches the value stored in state.json. Bump on any persona/stance/scoring rubric change. -->
+<!-- version bump log: 1→2 = hostile/adversarial stance. 2→3 = security-audit escape for pre-existing 🔴/🟠 (see _shared.md). 3→4 = citation/behavior-grounding gate (claim must be provable from a cited source line, not inferred from naming) + hostile-to-finding-not-code framing (guards LLM over-flagging) + top severity earned-by-proof. 4→5 = destructive/data-loss claims must cite the destructive operation (del/pop/clear/reassign/truncate); an add-or-update in-place mutation (d[k]=v, map.put, append) that the finding calls "erases"/"loses" other entries is a false positive — catches misread-mechanism 🔴s. 5→6 = claim-class discipline: new `unverified` verdict + `claim_class`/`needs_observation` fields for runtime/data/rendering claims held on static evidence only (reading a template proves nothing about what the server returned or the user saw); cross-agent +10 bonus now requires methodologically independent evidence, not N agents re-reading the same file. Step 2.5b reuses prior verdicts only when this number matches the value stored in state.json. Bump on any persona/stance/scoring rubric change. -->
 
 
 # Phase 2.5 Verifier (Batch Mode)
@@ -63,6 +63,8 @@ When your batch has findings across several files, issue the `Read`/`Grep` re-re
 
 If a finding's root-cause key appears in 2+ agents' lists: add +10 to the confidence score (capped at 100). Independent confirmation = more reliable.
 
+**But only when the confirmations are methodologically independent.** Agents share the same corpus and the same priors, so N agents reading the *same source file* and drawing the *same inference* is one inference reported N times, not N confirmations — and the bonus would reward the correlation. Award +10 only when the agents' `reread_evidence` cite **different artifacts or different classes of proof** (e.g. one cites source, another cites a test result, a recorded payload, or a documented framework contract). If every confirming agent's evidence is the same static read, award **+0** and note `correlated-evidence` in `reason`.
+
 Run the disproof checks above **first**, then assign the score from their outcome — do not pick a score on first impression and rationalize it. Before emitting each verdict, self-check: "Did I actually re-read the cited source, or am I trusting the evidence snippet?" If you did not fetch the source, do so now.
 
 ## Confidence scoring (0-100)
@@ -78,6 +80,17 @@ Run the disproof checks above **first**, then assign the score from their outcom
 - Score ≥ 75 → main report (`keep`)
 - Score 50–74 → "Potential Issues" appendix (`appendix`)
 - Score < 50 → silently dropped (`drop`)
+- Any score, but the claim is **runtime/data/rendering with only static proof** → `unverified`
+
+### The `unverified` verdict
+
+A finding whose claim class (see `_shared.md` → **Claim classes**) demands observation, where neither you nor the source agent has any, is **not** a false positive and **not** a confirmed defect — it is an open question, and forcing it into `keep`/`drop` destroys information either way. `drop` loses a real lead; `keep` states as fact something nobody watched happen.
+
+Emit `verdict: "unverified"` with:
+- `score` — your honest read of how likely it is (does NOT promote it out of this bucket),
+- `needs_observation` — the **specific** check that would settle it, concrete enough to run: `"open a row of the variant subtype and assert the resolved URL"`, not `"test it"`.
+
+The orchestrator renders these in their own report section. Never assign 🔴/🟠 to an `unverified` finding — top severity is earned by proof (below), and an unobserved claim has none.
 
 ## Severity must be earned by proof
 
@@ -93,7 +106,9 @@ A JSON array, one entry per input finding:
     "finding_id": "<id from input>",
     "root_cause_key": "<key>",
     "score": 0-100,
-    "verdict": "keep" | "appendix" | "drop",
+    "verdict": "keep" | "appendix" | "drop" | "unverified",
+    "claim_class": "static" | "runtime" | "data" | "rendering",
+    "needs_observation": "<the specific check that would settle it — required when verdict is unverified, else null>",
     "reason": "1-2 sentences",
     "reread_evidence": "actual code at file:line",
     "cross_confirmed_by": ["agent_name", ...]

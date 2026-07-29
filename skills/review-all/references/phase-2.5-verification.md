@@ -60,10 +60,13 @@ Cost: voting multiplies only the high-severity batch-verifier calls, and only wh
 - Score ≥ 75 → main report (`keep`)
 - Score 50–74 → "Potential Issues" appendix (`appendix`)
 - Score < 50 → silently dropped (`drop`)
+- Runtime/data/rendering claim held on static evidence only → `unverified`, **regardless of score**
 
-When `verifierVotes > 1`, the threshold above sets each individual verifier's verdict; the final keep/appendix/drop for a 🔴/🟠 finding is the majority decision from Step 2.5b-vote, not a single pass's score.
+`unverified` is orthogonal to the score bands, not a fourth band: it is set by **claim class vs. evidence class** (`verifier.md` → *The `unverified` verdict`*), so a well-argued, high-scoring claim that nobody observed still lands there. These render in the report's 🔬 **Unverified — needs observation** section with their `needs_observation`, and are excluded from the must-fix count. They are never dropped: an unobserved lead is information, and rounding it to either `keep` or `drop` throws that information away.
 
-Findings tagged `confidence: VERIFIED` from Phase 1 gates skip verification entirely (auto-keep at 90).
+When `verifierVotes > 1`, the threshold above sets each individual verifier's verdict; the final keep/appendix/drop for a 🔴/🟠 finding is the majority decision from Step 2.5b-vote, not a single pass's score. A finding any voter marks `unverified` stays `unverified` — one voter noticing the evidence gap is enough, since the others' agreement cannot manufacture an observation nobody made.
+
+Findings tagged `confidence: VERIFIED` from Phase 1 gates skip verification entirely (auto-keep at 90) — but **only** if the gate row carries provenance showing a command run this session (SKILL.md Phase 1 → *Record Results*). A gate result read from a log or a prior run is not tool-confirmed and does not earn the fast path.
 
 ## History persistence
 

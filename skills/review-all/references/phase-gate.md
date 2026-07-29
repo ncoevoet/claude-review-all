@@ -12,7 +12,7 @@ Normal `/review-all` is interactive by design — Phase 4's menu is a *mandatory
 
 1. **Phases 0.0 → 2.75 run exactly as in a normal review.** Discovery, deterministic gates (Phase 1), optional runtime probe (1.5), parallel heuristic agents (Phase 2), dedupe + batch verification (Phase 2.5), and the completion gate (Phase 2.75). No behavioural change — gate mode reuses all of it. Honor every config key (`verifierModel`, `skipAgents`, timeouts, etc.).
 2. **Resolve the severity floor.** `--severity <floor>` argument if given, else config key `gateSeverityFloor` (default `critical`). See `config-keys.md`.
-3. **Assemble the gateable finding set.** Take only the **main-report KEPT findings** (Phase 2.5 score ≥ 75). **Exclude the appendix** (score 50–74): a borderline, lower-confidence guess must never block a loop. Each finding is reduced to the export shape:
+3. **Assemble the gateable finding set.** Take only the **main-report KEPT findings** — verdict `keep` AND Phase 2.5 score ≥ 75. **Exclude the appendix** (score 50–74): a borderline, lower-confidence guess must never block a loop. **Exclude every `unverified` finding regardless of its score**: the verdict marks a runtime/data/rendering claim that nobody observed (`verifier.md` → *The `unverified` verdict*), and a score does not promote it out of that bucket. Gate mode is a blocking oracle — an unobserved claim cannot carry that weight, and it is reported to humans in the 🔬 section instead. Each finding is reduced to the export shape:
    `{ "id", "severity", "file", "line", "root_cause_key", "title", "confidence" }`
    (this is exactly what `scripts/export-findings.py` `normalize()` accepts, and what `gate-verdict.py` consumes).
 4. **Determine partial coverage.** If Phase 2.75 surfaced a `⚠️ PARTIAL REVIEW` (an agent or verifier never returned cleanly after its one retry), the review could not fully run. Pass `--partial` so the verdict **fails closed** — "couldn't verify" is treated as "not done", never as a green gate.
@@ -59,4 +59,5 @@ Gate mode still runs Phase 2.5's `state.json` lifecycle sweep and appends to `hi
 - No `AskUserQuestion` — anywhere in the gate path.
 - No Phase 3 prose report, no Phase 4 menu, no fix application, no ticket/PR writes.
 - No blocking on appendix (50–74) or ⚪ QUESTION findings (QUESTION rank is below every normal floor).
+- No blocking on an `unverified` finding, whatever it scored — the claim has no observation behind it.
 - No silent pass on partial coverage — `--partial` forces a fail.

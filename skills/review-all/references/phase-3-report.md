@@ -112,14 +112,16 @@ The Summary's **Files Changed** line breaks the diff down by `git` change type (
 
 ## Automated Gate Results
 
-| Gate | Result | Details |
-|------|--------|---------|
-| Typecheck | ✅ PASS / ❌ FAIL(N) / ⏭ SKIP / ⏱ TIMEOUT / ➖ N/A | … |
-| Lint | … | … |
-| Tests | … | … |
-| Spec Existence | ✅ PASS / ❌ MISSING(N) | … |
-| Dependencies | ➖ N/A / 📦 CHANGED(+X, -Y, Z bumped) | … |
-| Profile cache | ♻️ HIT / 🔄 MISS(reason) | rules cache from Phase 0 — reason ∈ no-cache, key-mismatch, schema, expired, unreadable |
+| Gate | Result | Provenance | Details |
+|------|--------|------------|---------|
+| Typecheck | ✅ PASS / ❌ FAIL(N) / ⏭ SKIP(reason) / ⏱ TIMEOUT / ➖ N/A | `<cmd>` · exit `<code>` · `<HH:MM:SS>` | … |
+| Lint | … | `<cmd>` · exit `<code>` · `<HH:MM:SS>` | … |
+| Tests | … | `<cmd>` · exit `<code>` · `<HH:MM:SS>` | … |
+| Spec Existence | ✅ PASS / ❌ MISSING(N) | — | … |
+| Dependencies | ➖ N/A / 📦 CHANGED(+X, -Y, Z bumped) | — | … |
+| Profile cache | ♻️ HIT / 🔄 MISS(reason) | — | rules cache from Phase 0 — reason ∈ no-cache, key-mismatch, schema, expired, unreadable |
+
+The **Provenance** column is mandatory for the three runnable gates and must show a command executed in this run (SKILL.md Phase 1 → *Record Results*). A gate with no provenance may not be rendered `PASS` — print `⏭ SKIP(not-run-this-session)`. This column is what lets the reader distinguish a build that happened from one that was assumed.
 
 ## 🔴 **C**ritical
 - **Finding 1**: {failure-mode title naming the real identifier} — `file:line` `[🔴 CRITICAL · VERIFIED]` {🔁 recurring if from history}
@@ -145,6 +147,10 @@ The Summary's **Files Changed** line breaks the diff down by `git` change type (
 ## ⚪ Questions
 - **Finding N**: `file:line` — {question, one line}
 
+## 🔬 Unverified — needs observation
+{omit if none. Findings the verifier returned as `unverified` — a runtime/data/rendering claim held on static evidence only.}
+- **Finding N**: `file:line` — {claim, one line} — **to settle**: {the specific observation}
+
 ## Dependency Changes
 {omit if no manifests changed}
 
@@ -169,4 +175,6 @@ The Summary's **Files Changed** line breaks the diff down by `git` change type (
 - **Concision drives action.** One-sentence Impact; evidence capped to the load-bearing lines; Debt/Suggested/Questions one line each. The one-line rule applies to Debt, Suggested, AND Questions; the full-anatomy rule applies to Critical AND Important. If Critical+Important runs past ~1–2 screens, that is a calibration problem (over-flagging), not a formatting one — re-check verifier precision rather than just trimming text.
 - **Scope footer**: end with the one-line scope note so the reader sees what was and was NOT reviewed (files skipped as binary/generated/too-large), pre-empting "did it even look at X?".
 - **Quota overflow is surfaced, not silent**: when a per-agent quota or the global SUGGESTED/QUESTION cap truncates a tier, append `+N more <tier> (capped)` to that section instead of dropping silently — the reader must know coverage was capped, not assume the tier was empty.
+- **Unverified findings never merge into a severity tier.** A `unverified` verdict renders only in the 🔬 section with its `needs_observation`, never as 🔴/🟠 and never silently dropped. The Verdict line counts must-fix as 🔴+🟠 only, so unverified items do not block merge — but they must remain visible, because the alternative is stating an unobserved claim as fact or losing a real lead. When the section is non-empty, append `+N unverified` to the Verdict line.
+- **The report's own prose is subject to the citation gate.** The Intent, Summary, and Gate sections are assertions like any finding: they must be traceable to a command you ran or a line you read. The verifier's citation discipline (`verifier.md` step 2) exists because unbacked claims mislead — that reasoning does not stop applying at the section boundary. Do not describe behaviour in the Summary that no finding established.
 - **Machine-readable tally**: the report's final line is an HTML comment `<!-- review-all-severity: {"critical":…,"important":…,"debt":…,"suggested":…,"question":…} -->` so CI and scripts can parse per-tier counts (e.g. with `jq`) and gate on them.

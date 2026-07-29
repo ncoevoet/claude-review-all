@@ -21,6 +21,10 @@ echo "== dismissed-digest invariants gate =="
 bash "$HERE/check-dismissed-digest.sh" || rc=1
 
 echo
+echo "== claim-class + provenance invariants gate =="
+bash "$HERE/check-claim-class.sh" || rc=1
+
+echo
 echo "== eval schema validation =="
 python3 "$HERE/../skills/review-all/scripts/validate-evals.py" || rc=1
 

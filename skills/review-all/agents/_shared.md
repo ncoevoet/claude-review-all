@@ -42,6 +42,23 @@ Every potential finding MUST be verified by reading the actual source code at th
 - **Confidence** — VERIFIED (tool-confirmed), HIGH (source-confirmed), or MEDIUM (likely but unverified)
 - **Root-cause key** — a stable string identifying the root cause, used for cross-agent dedup. Format: `<category>:<file>:<symbol>` (lowercase, kebab-case category, forward-slash file path, symbol name as in source). Categories are drawn from a fixed list — `missing-null-check`, `unbounded-loop`, `n-plus-one`, `injection`, `race-condition`, `resource-leak`, `unhandled-error`, `dead-code`, `duplicated-logic`, `bad-naming`, `bad-typing`, `api-break`, `missing-test`, `a11y`, `i18n`, `perf`, `security`, `style`. Use `other:<file>:<symbol>` if nothing fits. Examples: `missing-null-check:src/users/UserService.ts:load`, `n-plus-one:app/orders/list.py:OrderListView`. Same key = same issue, even on different lines. The verifier normalizes minor variations.
 
+## Claim classes — match the proof to the claim
+
+Reading source proves what the source **says**. It does not prove what the program **does**, what a server **returns**, or what a user **sees**. Substituting a static proof for a runtime/data/rendering claim is the most common way a confident finding turns out to be false — the finding cites real code and is still wrong.
+
+Before reporting, classify your core claim and check you hold the admissible proof:
+
+| Class | Claim about… | Admissible proof | NOT proof |
+|-------|--------------|------------------|-----------|
+| **Static** | code shape — missing `default`, unused export, no caller, wrong operator | the cited lines; grep / codegraph output | — |
+| **Runtime** | what executes — "this redirect fires", "this branch is unreachable", "the guard runs first" | observing it: a test that exercises the path, a log line emitted by a real run, framework docs that pin the ordering | reading the function that *would* do it |
+| **Data** | what a system returns — "the API omits this field", "this is always null in practice" | an actual payload: fixture, recorded response, network capture | inferring from a schema, model, DTO, or template |
+| **Rendering** | what a user sees — "no icon renders", "the label is unlabelled" | rendered DOM, a snapshot test, a screenshot | reading the template |
+
+**If you hold only a static proof for a runtime/data/rendering claim**, you may still report it — but cap it at **⚪ QUESTION** (or 🔵 SUGGESTED), never 🔴/🟠, set confidence **MEDIUM**, and state the missing observation explicitly in the evidence: `UNVERIFIED — would need <the specific observation>`. Phase 2.5 preserves that cap. Do not silently drop it; an honest "needs runtime confirmation" is useful to the reader, a confident wrong 🔴 is not.
+
+Framework semantics count as static knowledge only when you can cite the documented contract. "I believe the router does X at this point in the lifecycle" is a runtime claim unless the docs pin it.
+
 ## 3-question gate
 
 Before reporting ANY finding, answer YES to all three:

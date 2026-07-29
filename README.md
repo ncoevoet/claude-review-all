@@ -1,7 +1,7 @@
 # /review-all
 
 [![CI](https://github.com/ncoevoet/claude-review-all/actions/workflows/ci.yml/badge.svg)](https://github.com/ncoevoet/claude-review-all/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-0.7.0-blue)](.claude-plugin/plugin.json)
+[![version](https://img.shields.io/badge/version-0.7.1-blue)](.claude-plugin/plugin.json)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)](https://code.claude.com/docs/en/plugins)
 
@@ -133,7 +133,8 @@ Big diffs are auto-chunked (`chunkMaxFiles=40`, `chunkMaxBytes=200000`) and re-m
 1. **Dedupe** via `scripts/dedupe.py`: groups by `root_cause_key`, annotates `confirmed_by`, applies global caps (SUGGESTED ≤ 10, QUESTION ≤ 8).
 2. **Verify** in parallel — one verifier per source agent, spawned at `verifierModel` tier (default Haiku — cheap, fast, JSON-bound). Verifier stance is **hostile to the finding, not the code**: assume every finding is wrong until disproven. Its primary gate is a **citation check** — a behavior claim must be provable from a quoted source line, not inferred from naming; ungrounded claims are dropped (or kept only as a ⚪ question). Top severity (🔴/🟠) must be earned by that proof.
 3. Score: `≥75` → main report, `50–74` → appendix, `<50` → silently dropped.
-4. **State sweep** via `scripts/state-sweep.py`: applies `fixed`/`stale`/`snoozed`/`wontfix` transitions to `.claude/review-all/state.json`.
+4. **Claim class** — every finding is classified `static` / `runtime` / `data` / `rendering`, and must hold the proof its class demands. Reading a template proves what the template says; it proves nothing about what the server returned or what the user saw. A runtime/data/rendering claim backed only by a source read gets the `unverified` verdict — orthogonal to the score, so even a well-argued one lands there. It is neither asserted as fact nor dropped: it surfaces in the report's 🔬 section naming the exact observation that would settle it, and it never blocks gate mode.
+5. **State sweep** via `scripts/state-sweep.py`: applies `fixed`/`stale`/`snoozed`/`wontfix` transitions to `.claude/review-all/state.json`.
 
 ### Phase 2.75 — Completion gate
 
@@ -141,7 +142,7 @@ Every spawned agent and every verifier must have returned with valid JSON, or be
 
 ### Phase 3 — Unified report
 
-Opens with a one-line **Verdict** (`N must-fix before merge`, or ✅ none) for instant triage, then: Intent · Summary · Gate Results · 🔴 Critical · 🟠 Important · 🟡 Debt · 🔵 Suggested · ⚪ Questions · Dependency Changes · Appendix · **Scope footer** (files reviewed / skipped). 🔴/🟠 get full anatomy (failure-mode title, `[severity · confidence]` tag, one-sentence impact, suggested fix, ≤8-line evidence); 🟡/🔵/⚪ collapse to one line each. The Summary also reports a **Merge-readiness %** (a transparent resolved/total must-fix ratio that climbs as fixes apply) and **change-type buckets** (files Added/Modified/Deleted/Renamed). The last line is a machine-readable `<!-- review-all-severity: {…} -->` comment for CI parsing; the Phase 4 **Export findings** action additionally emits `review-<ts>.json` + `review-<ts>.sarif` for CI gates.
+Opens with a one-line **Verdict** (`N must-fix before merge`, or ✅ none) for instant triage, then: Intent · Summary · Gate Results · 🔴 Critical · 🟠 Important · 🟡 Debt · 🔵 Suggested · ⚪ Questions · 🔬 Unverified · Dependency Changes · Appendix · **Scope footer** (files reviewed / skipped). The Gate Results table carries a mandatory **Provenance** column — the exact command, its exit code, and when it ran — because a gate with no provenance may not be rendered `PASS`; that is what separates a build that happened from one that was assumed. 🔴/🟠 get full anatomy (failure-mode title, `[severity · confidence]` tag, one-sentence impact, suggested fix, ≤8-line evidence); 🟡/🔵/⚪ collapse to one line each. The Summary also reports a **Merge-readiness %** (a transparent resolved/total must-fix ratio that climbs as fixes apply) and **change-type buckets** (files Added/Modified/Deleted/Renamed). The last line is a machine-readable `<!-- review-all-severity: {…} -->` comment for CI parsing; the Phase 4 **Export findings** action additionally emits `review-<ts>.json` + `review-<ts>.sarif` for CI gates.
 
 Heartbeat lines print at each phase boundary so the user sees forward motion on long runs.
 
@@ -165,7 +166,7 @@ The two fix modes appear only when fixable findings exist; otherwise the menu le
   "blocking": [ {"id": "F3", "severity": "CRITICAL", "file": "src/x.ts", "line": 42, "title": "unguarded null deref"} ] }
 ```
 
-A finding blocks only when its severity meets the floor (`gateSeverityFloor`, default `critical` → 🔴 only; `--severity important` → 🔴+🟠). Only main-report findings (score ≥ 75) gate — the appendix never blocks. Partial review coverage **fails closed**. This is what lets a CI step or an autonomous loop (e.g. the `goal-loop` plugin's oracle) consume review-all as a hard gate. See `skills/review-all/references/phase-gate.md`.
+A finding blocks only when its severity meets the floor (`gateSeverityFloor`, default `critical` → 🔴 only; `--severity important` → 🔴+🟠). Only main-report findings (verdict `keep`, score ≥ 75) gate — the appendix never blocks, and neither does an `unverified` finding at any score, since nobody observed the behaviour it claims. Partial review coverage **fails closed**. This is what lets a CI step or an autonomous loop (e.g. the `goal-loop` plugin's oracle) consume review-all as a hard gate. See `skills/review-all/references/phase-gate.md`.
 
 ## How it's tested & improved
 

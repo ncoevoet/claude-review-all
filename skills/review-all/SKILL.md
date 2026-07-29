@@ -231,7 +231,16 @@ Execute the bundled script (passing the configured port list, default `4200,5173
 bash scripts/dev-server-probe.sh "4200,5173,3000,8080"
 ```
 
-Output JSON: `{"open":[4200],"closed":[5173,3000,8080]}`. If any open port matches the detected framework's typical dev-server port, **skip the build gate** — the dev server is the build.
+Output JSON: `{"open":[4200],"closed":[5173,3000,8080]}`. If any open port matches the detected framework's typical dev-server port, the build gate MAY be satisfied by the dev server — but only under the liveness proof below.
+
+**Dev-server substitution requires proof, not assumption.** "A dev server is probably running" is the single easiest way to report a build that never happened: a stale log from a previous session is byte-identical to a fresh success. Before recording the build/typecheck gate as PASS on the strength of a dev server, ALL of:
+
+1. The port is **open right now** (`dev-server-probe.sh` reported it in `open` this run — not "it usually is").
+2. You identified the server's log/output file and read its **mtime**.
+3. That mtime is **newer than the newest file in the diff**. If the log predates the code under review, it cannot describe it.
+4. The log's tail shows a **successful completion marker** (e.g. `Application bundle generation complete`, `compiled successfully`) with no error lines after it.
+
+If any of 1–4 fails → do NOT record PASS. Record `SKIP(stale-dev-server: <reason>)` and run the real build/typecheck command instead, or `N/A` if none is configured. A dev server you did not prove is live tells you nothing.
 
 ### Run these in parallel
 
@@ -263,15 +272,24 @@ If any manifest/lockfile changed (`package.json`, `pom.xml`, `build.gradle`, `Ca
 
 ### Record Results
 
+**Every gate row carries its provenance.** A bare `PASS` is unfalsifiable — the reader cannot tell a command you ran from a log you glanced at. Record, per gate: the **exact command**, its **exit code**, and the **wall-clock time you ran it**.
+
 ```
-Typecheck:      PASS | FAIL(N errors) | SKIP | TIMEOUT | N/A
-Lint:           PASS | FAIL(N issues) | SKIP | TIMEOUT | N/A
-Tests:          PASS | FAIL(N failures) | SKIP | TIMEOUT | N/A
+Typecheck:      PASS | FAIL(N errors) | SKIP(reason) | TIMEOUT | N/A   [cmd: <command> · exit: <code> · at: <HH:MM:SS>]
+Lint:           PASS | FAIL(N issues) | SKIP(reason) | TIMEOUT | N/A   [cmd: … · exit: … · at: …]
+Tests:          PASS | FAIL(N failures) | SKIP(reason) | TIMEOUT | N/A [cmd: … · exit: … · at: …]
 Spec Existence: PASS | MISSING(list)
 Dependencies:   N/A | CHANGED(+X added, -Y removed, Z bumped)
 ```
 
-Findings from gate failures are tagged `confidence: VERIFIED` — skip the verification phase.
+Hard rules:
+
+- **PASS requires a command you executed in THIS run.** If the result came from anywhere else — a log file, a previous session, CI, the user's report — the status is `SKIP(not-run-this-session)`, never `PASS`. Provenance is what makes the difference visible; without it the two are indistinguishable in the report.
+- **A gate you could not run is `SKIP(<reason>)`, not `N/A`.** `N/A` means the gate does not apply to this project (no linter configured); `SKIP` means it applies but did not run. Collapsing them hides missing coverage.
+- **Never infer one gate's result from another.** Passing tests do not imply a passing typecheck (most test runners strip types without checking them); a clean lint does not imply a clean build.
+- **Template compilation is not covered by a plain typecheck.** In template-based frameworks (Angular, Vue SFC, Svelte), `tsc --noEmit` does not validate templates. A change to a template needs the framework compiler (build or dev-server rebuild) before any gate may read PASS.
+
+Findings from gate failures are tagged `confidence: VERIFIED` — skip the verification phase. **This tag is earned by the exit code you recorded**, and applies only to gates whose provenance shows a command run this session.
 
 ---
 
@@ -326,7 +344,9 @@ Two-step flow:
 1. **Dedupe** by `root_cause_key` (cheap; before verify) — apply global caps for SUGGESTED/QUESTION.
 2. **Batch verify** — one verifier agent per source agent, in parallel.
 
-Threshold (full table in the reference): score ≥ 75 → main report; 50–74 → appendix; < 50 → drop. VERIFIED gate findings auto-keep at 90.
+Threshold (full table in the reference): score ≥ 75 → main report; 50–74 → appendix; < 50 → drop. VERIFIED gate findings auto-keep at 90 — but only when the Phase 1 gate row carries provenance for a command run this session.
+
+A fourth verdict, `unverified`, is **orthogonal to those bands**: it is set by claim class vs. evidence class (a runtime/data/rendering claim held on static evidence only — see `agents/_shared.md` → *Claim classes*), so a high-scoring finding still lands there. These are never dropped and never rendered 🔴/🟠; they go to the report's 🔬 **Unverified — needs observation** section with the specific check that would settle them.
 
 When `verifierVotes > 1` (config, default `1`), 🔴/🟠 survivors get majority-vote re-verification before the threshold is final — see the reference's **Step 2.5b-vote**. 🟡/🔵/⚪ stay single-pass.
 
@@ -339,7 +359,7 @@ When `verifierVotes > 1` (config, default `1`), 🔴/🟠 survivors get majority
 Before entering Phase 3, the orchestrator MUST verify:
 
 1. **Every spawned agent returned.** Compare the actual return set against the planned spawn list from Phase 2 (after applying `extraAgents`/`skipAgents`). If any agent is missing or its result is empty due to timeout/error → re-spawn that one agent once.
-2. **Every verifier returned valid JSON.** Each verifier output must parse and contain, per finding: `finding_id`, `root_cause_key`, `score` (0–100), `verdict` (`keep`/`appendix`/`drop`), `reason`, `reread_evidence`. Malformed output → re-spawn the verifier once with explicit "your previous output failed schema validation: <reason>" preamble. Note: retry re-verifies the **entire batch** (same input set) — this is the documented token cost of a malformed verifier response; do not attempt partial salvage.
+2. **Every verifier returned valid JSON.** Each verifier output must parse and contain, per finding: `finding_id`, `root_cause_key`, `score` (0–100), `verdict` (`keep`/`appendix`/`drop`/`unverified`), `claim_class` (`static`/`runtime`/`data`/`rendering`), `reason`, `reread_evidence` — plus a non-null `needs_observation` whenever the verdict is `unverified`. Malformed output → re-spawn the verifier once with explicit "your previous output failed schema validation: <reason>" preamble. Note: retry re-verifies the **entire batch** (same input set) — this is the documented token cost of a malformed verifier response; do not attempt partial salvage.
 3. **Every gate has a terminal state.** Typecheck/Lint/Tests/Spec Existence/Dependencies must each be one of `PASS|FAIL|SKIP|TIMEOUT|N/A`. No `running`, no missing entries.
 
 If after one retry an agent or verifier still has not returned cleanly:
@@ -365,7 +385,7 @@ Detailed menu, triage loop, the three follow-up actions, apply-fixes sub-menu, l
 
 **Mandatory menu gate (mirror of the Phase 2.75 completion gate).** Presenting the Phase 4 menu is NOT optional. The orchestrator MUST present the Phase 4 menu in the SAME turn as the Phase 3 report — emitting the report and then ending the turn is a silent failure. Treat "the report is done, so I'm done" as the #1 Phase 4 failure mode after a long `effort: high` review, exactly as premature agent loss is for Phase 2.75.
 
-The ONLY condition that skips the menu: every report section reads "None found." AND there is no appendix (no 🔴/🟠/🟡/🔵/⚪ and nothing scoring 50–74). In that one case, state `✅ No actionable findings — nothing to triage.` and stop. In every other case the menu MUST appear.
+The ONLY condition that skips the menu: every report section reads "None found." AND there is no appendix AND no 🔬 unverified findings (no 🔴/🟠/🟡/🔵/⚪, nothing scoring 50–74, nothing awaiting observation). In that one case, state `✅ No actionable findings — nothing to triage.` and stop. In every other case the menu MUST appear.
 
 **Report-before-menu ordering (hard rule).** Emit the COMPLETE Phase 3 report as user-visible text FIRST; the `AskUserQuestion` menu call must be the IMMEDIATELY NEXT action — zero tool calls between the report text and the menu call (no Write, no Bash, no export). Text emitted between tool calls may not render for the user, and the interactive menu pins to the prompt — any tool call in between makes the menu appear before (or without) the report. Artifact writes (report file, exports) happen only after a menu choice. Calling the menu before the report text is the mirror failure of skipping the menu: the user cannot triage findings they have not seen. The menu's question text MUST carry the verdict summary (`Review done — N must-fix: X 🔴, Y 🟠 (+Z optional). Full report above ↑`) so the choice is decidable even when the report has scrolled off-screen.
 
@@ -386,7 +406,7 @@ The lines below are the **canonical templates**. If you have all the data they n
 - After Phase 0 ends: `Phase 0: profile built, <N> files in target, rules cache <HIT|MISS(reason)> (elapsed <S>s)`
 - After Phase 1 ends: `Phase 1: typecheck=<R>, lint=<R>, tests=<R>, runtime=<R> (elapsed <S>s)`
 - During Phase 2, when each agent returns: `Phase 2: <K>/<N> agents returned (elapsed <S>s)` — one line per return is OK; do not also narrate each agent's finding count.
-- After Phase 2.75 completion gate: `Phase 2.75: <K> agents verified, <M> findings kept, <X> appendix, <Y> dropped (elapsed <S>s)`
+- After Phase 2.75 completion gate: `Phase 2.75: <K> agents verified, <M> findings kept, <X> appendix, <U> unverified, <Y> dropped (elapsed <S>s)`
 - After Phase 3 ends: `Phase 3: report assembled — <C> critical, <I> important, <D> debt, <S> suggested, <Q> questions`
 
 In addition, if ANY single Phase 2 agent exceeds 120s, emit ONCE:
@@ -399,7 +419,7 @@ Keep heartbeat output to one line each. Do NOT narrate internal deliberation bet
 ## Important Rules
 
 1. **LOCAL review only** unless the user explicitly picks "Post to PR". Default output is the terminal.
-2. **Always reach the Phase 4 menu.** A finished report is the START of Phase 4, never the end of the turn. Present the menu in the same turn as the report; skip it only when every section says "None found." and there is no appendix (mirrors the Phase 2.75 no-silent-drop rule, applied to the menu). **Exception: gate mode** (Step 0.1) has no report and no menu — the verdict + exit code is its terminal step.
+2. **Always reach the Phase 4 menu.** A finished report is the START of Phase 4, never the end of the turn. Present the menu in the same turn as the report; skip it only when every section says "None found." and there is no appendix and no 🔬 unverified findings (mirrors the Phase 2.75 no-silent-drop rule, applied to the menu). **Exception: gate mode** (Step 0.1) has no report and no menu — the verdict + exit code is its terminal step.
 3. **Verify everything.** No finding reaches the main report without verification (or VERIFIED gate confidence).
 4. **Evidence required.** Every finding must cite real code. "Might be a problem" is unacceptable.
 5. **No noise.** 3 verified findings beat 20 unverified suggestions.
