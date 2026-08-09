@@ -60,7 +60,7 @@ Two tiers of detail. **This applies to every section, not just the first one**: 
 - **Impact** — one sentence: what breaks and for whom. Not a restatement of the title.
 - **Fix** — one concrete, minimal **suggested** fix (say "suggested", not "the fix"). Show a code/diff snippet only when the fix is unambiguous; for multi-file or design-level fixes give a short "to fix:" instruction instead of a misleadingly precise patch.
 - **Evidence** — only the load-bearing source lines (~3–8), fenced and language-tagged. Not the whole function.
-- **Confirmed by** — other agents that raised the same root-cause key, if any.
+- **Flagged independently by N agents** — render when the finding's `corroborating_agents` (from `dedupe.py`) is ≥ 2, naming them: `Flagged independently by 3 agents (bugs-and-security, performance, api-contract)`. Omit the line entirely at 1. The count is the reader's trust signal — it says how many personas arrived at this root cause on their own — but it is not itself proof; verification already decided the finding belongs here.
 
 **Optional (🟡 Debt, 🔵 Suggested, ⚪ Questions)** — one line each, no Impact/Fix/Evidence block:
 `**Finding N**: `file:line` — <failure mode + concrete identifier>`. If a tier has many entries, lead with the count.
@@ -127,7 +127,7 @@ The **Provenance** column is mandatory for the three runnable gates and must sho
 - **Finding 1**: {failure-mode title naming the real identifier} — `file:line` `[🔴 CRITICAL · VERIFIED]` {🔁 recurring if from history}
   - **Impact**: {one sentence — what breaks}
   - **Fix**: {one concrete suggested fix}
-  - **Confirmed by**: {agents, if multi-agent}
+  - **Flagged independently by {N} agents**: {agents} — omit when N is 1
   <details><summary>Evidence</summary>
 
   {3–8 load-bearing source lines, fenced + language-tagged}

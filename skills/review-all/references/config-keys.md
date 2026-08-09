@@ -41,6 +41,7 @@ Each default carries a **Why** rationale — Ousterhout's law: no voodoo constan
 - `state-file.md` — `code_hash` window = ±3 lines around flagged lines. Why: large enough to survive whitespace-only edits elsewhere in the file, small enough to detect real edits at the flagged location.
 - `phase-2.5-verification.md` — main-report threshold `score ≥ 75`, appendix `50–74`, drop `< 50`. Why: 75 matches verifier's "strong, verified" anchor; 50 is "moderate" — keeps borderline cases visible without polluting main report.
 - `phase-2.5-verification.md` — recurrence escalation when same `root_cause_key` appears in 3+ history entries. Why: two repeats can be noise; three signals a stable pattern worth tier-bumping.
+- `SKILL.md` Step 0.5 — repo-root `REVIEW.md` is read fresh every run (never cached) and injected verbatim into every agent and verifier prompt as the highest-priority instruction block. Why no config key: it is a convention file, always-on when present, with nothing to tune — severity recalibration, skip rules and per-path raised bars are expressed as prose inside it, which is strictly more expressive than a key would be. In gate mode its severity remaps move findings across `gateSeverityFloor` in both directions; see `phase-gate.md` → **REVIEW.md in gate mode**.
 
 ## Notes
 

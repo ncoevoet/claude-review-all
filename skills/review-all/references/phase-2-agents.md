@@ -25,6 +25,25 @@ To reduce token duplication, send each agent only the diff slice it needs:
 
 All agents also receive: changed file list, Project Profile, CLAUDE.md rules, Phase 1 gate results, PR description if applicable, and the `<previously_dismissed>` digest of `wontfix` / non-expired-`snoozed` findings from `stateFile` (built in SKILL.md Phase 2). Agents suppress a matching finding only when its location is **unchanged in this diff** — see `agents/_shared.md` → Previously-dismissed findings. (This reverses the earlier "agents don't need the suppression list" stance: feeding the team's own dismissals up front spares re-deriving and re-verifying them; the Phase 2.5 Step 2.5.0 central filter still drops any that slip through, so it remains the guarantee — the digest is a spend-saving hint, not the gate.)
 
+## Per-agent diff ordering
+
+Every agent sees the same diff content, but **each sees the files in a different order**. Attention is not uniform across a long prompt, so ten agents handed an identically ordered diff share the same weak middle; permuting per agent decorrelates that blind spot at zero token cost. (Same lever as the randomized-order passes Cursor's Bugbot reports, and the multi-pass aggregation gain measured in SWR-Bench — here it comes free, because ten passes already run.)
+
+Before spawning, call the ordering script **once** with the union of changed files:
+
+```bash
+echo "$CHANGED_FILES_JSON" | python3 scripts/agent-order.py --agents 10
+```
+
+It returns a permutation per agent number, derived from `sha256("<agent>:<path>")` — reproducible across runs and machines, so a review stays replayable. Assemble each agent's `<diff>` by concatenating its per-file diff slices in that agent's order.
+
+Rules:
+
+1. **Apply only when the agent's slice holds ≥ 3 files.** Below that a permutation carries no information; skip the reorder (the script call is still made once for the run, not per agent).
+2. **Chunk composition is computed on the canonical `git` order first; the per-agent order is then applied to the files *within* each chunk.** Chunk membership must stay identical across agents and runs — otherwise related siblings (a source file and its spec) land in different chunks for different agents, and the Phase 2.75 chunk accounting stops being comparable.
+3. **Hunks within a file are NEVER reordered.** The unit is the file; a file's hunks stay in source order, and per-file attached context travels with it (agent 04's `git blame` block moves with its file, never decouples from it).
+4. **The verifier is unaffected.** It re-reads cited sources by `file:line`, so its judgment is order-independent by construction.
+
 ## Agents to spawn
 
 | # | Agent | Persona | Spawn condition |

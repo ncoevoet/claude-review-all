@@ -137,16 +137,25 @@ If `.claude/review-all.json` exists, read it. Schema (jsonc — written as plain
   "stateFile": ".claude/review-all/state.json",
   "agentTimeoutSeconds": 600,
   "verifierTimeoutSeconds": 300,
+  "verifierModel": "haiku",
+  "verifierVotes": 1,
   "chunkMaxFiles": 40,
   "chunkMaxBytes": 200000,
   "runtimeProbe": "auto",
   "runtimeRoutes": [],
   "visualDiffThresholdPct": 1.0,
   "scopePromptCommits": 20,
-  "scopePromptFiles": 200
+  "scopePromptFiles": 200,
+  "suggestedGlobalCap": 10,
+  "questionGlobalCap": 8,
+  "quotaDebt": 5,
+  "quotaSuggested": 3,
+  "quotaQuestion": 2,
+  "gateSeverityFloor": "critical",
+  "gateVerdictFile": ".claude/review-all/gate-verdict.json"
 }
 ```
-All keys optional — use defaults if missing.
+All keys optional — use defaults if missing. The authoritative per-key table, with the rationale behind every default, lives in `references/config-keys.md`; this block must list exactly the same key set.
 
 **Rules cache** (verdict already computed by `discover.sh` in Step 0.0):
 
@@ -178,6 +187,8 @@ Two halves with different cache behavior:
 **Global rules** (cached — skipped on cache HIT, see Step 0.2): read root `CLAUDE.md` and files it references (guides, patterns). Extract: naming conventions, architectural constraints, "NEVER do X" / "ALWAYS do Y" directives, framework rules. Record the files read as `ruleSources` for the cache write.
 
 **Module rules** (never cached — always read fresh): module-level `CLAUDE.md` in directories of changed files. The set depends on the diff, so caching them under a diff-independent key would serve module X's rules to a review of module Y.
+
+**Review instructions — `REVIEW.md`** (never cached — always read fresh): if a `REVIEW.md` exists at the repository root, read its raw text and carry it VERBATIM into Phase 2 as the `<review_instructions>` block. Do NOT summarize, extract, reword, or truncate it, and do NOT expand `@`-imports (unlike `CLAUDE.md`, referenced files are not pulled in — whatever the repo owner wants enforced must be written in the file itself). It is deliberately excluded from the rules cache: the cache exists only to skip the LLM *extraction* pass over `CLAUDE.md`, and verbatim injection has no extraction cost — caching it would add a staleness surface and buy nothing. Absent file → omit the block entirely. Report it on the Phase 0 heartbeat (`REVIEW.md loaded (N lines)`); when it exceeds 10 KB, add a one-line warning that it is injected into every agent and verifier prompt and is worth trimming (soft guideline: ≤150 lines).
 
 ### Step 0.6 — Detect Test Patterns
 
@@ -322,9 +333,21 @@ Read `references/phase-2-agents.md` (sibling of this file) for diff-slice mappin
 - `agents/09-api-contract.md` — API & Contract (conditional)
 - `agents/10-a11y-i18n.md` — A11y & i18n (conditional)
 
-For each agent you spawn: pass its persona + `_shared.md` (concatenated) + the diff slice as the prompt. Wrap each part in XML tags so the agent parses the prompt unambiguously — `<persona>`, `<shared_rules>`, `<project_profile>`, and `<diff>` (Anthropic prompt-structuring best practice for prompts that mix instructions with variable inputs). When the dismissed-finding digest (above) is non-empty, add a `<previously_dismissed>` block to every agent. Before spawning, substitute these placeholders in the concatenated text:
+For each agent you spawn: pass its persona + `_shared.md` (concatenated) + the diff slice as the prompt. Wrap each part in XML tags so the agent parses the prompt unambiguously (Anthropic prompt-structuring best practice for prompts that mix instructions with variable inputs). **Canonical block order** — same in every agent prompt and in the Phase 2.5 verifier prompt, blocks marked `?` omitted when empty or absent:
+
+```
+<review_instructions>?  <persona>  <shared_rules>  <project_profile>  <gate_results>?  <previously_dismissed>?  <diff>
+```
+
+`<review_instructions>` carries the repo's `REVIEW.md` verbatim (Step 0.5) and leads the prompt because it is the highest-priority input; its precedence over persona and shared rules — and the evidence-discipline carve-out it may not override — are stated in `agents/_shared.md`. Before spawning, substitute these placeholders in the concatenated text:
 - `${codegraphTools.X}` — from the runtime-resolved map from Step 0.7.
 - `${quota.debt}` / `${quota.suggested}` / `${quota.question}` — from config keys `quotaDebt` (default `5`), `quotaSuggested` (default `3`), `quotaQuestion` (default `2`) in `.claude/review-all.json`. Config value of `0` disables that per-agent quota.
+
+**Phase 1 gate failures — `<gate_results>`.** When any Phase 1 gate ended `FAIL` or `TIMEOUT`, pass its output to every agent and to the Phase 2.5 verifier as a `<gate_results>` block. **Failures only** — a green run omits the block entirely, so the common path pays nothing (pass/skip status already rides in `<project_profile>`). Per failing gate: one header line in the Phase 1 provenance format (`Typecheck: FAIL(3 errors) [cmd: … · exit: … · at: …]`) followed by the failing output lines, truncated at **20 lines or 2 000 characters per gate and 4 000 characters total**, with `… (+N more lines)` marking any cut. Include the Spec Existence Check's MISSING list when non-empty.
+
+A compiler, linter, or test runner is ground truth about behavior that no amount of reading can match, and hybrid static-analysis + LLM review is the strongest published precision lever — but the output is a **lead, not a finding**. The gate failure itself is already reported as a VERIFIED finding by Phase 1; use it to locate the underlying defect and report *that*, with your own evidence. Never restate gate output as a finding — ten agents each re-reporting one failing test is ten copies of something already on the report.
+
+**Per-agent diff ordering.** Before spawning, call `scripts/agent-order.py` ONCE with the union of changed files (`--agents 10`) and lay out each agent's `<diff>` in that agent's returned order — same content, different file order per agent, so the ten passes do not share one positional blind spot. Chunk composition is computed on the canonical git order first and the per-agent order applied within each chunk; hunks inside a file are never reordered. Full rules in `references/phase-2-agents.md` → **Per-agent diff ordering**.
 
 Include the per-file `changeTypes` from Step 0.8 in `<project_profile>` so agents apply Rule 7's change-type scrutiny weighting — strictest bar on newly **Added** files (no established-convention cover), downstream-breakage focus on **Deleted** files.
 

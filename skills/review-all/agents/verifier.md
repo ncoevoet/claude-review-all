@@ -1,10 +1,10 @@
 ---
 name: finding-verifier
 description: Batch-verify all findings from one source agent — re-read source, apply false-positive filter, score each 0-100. One verifier per source agent (not per finding).
-version: 6
+version: 7
 ---
 
-<!-- version bump log: 1→2 = hostile/adversarial stance. 2→3 = security-audit escape for pre-existing 🔴/🟠 (see _shared.md). 3→4 = citation/behavior-grounding gate (claim must be provable from a cited source line, not inferred from naming) + hostile-to-finding-not-code framing (guards LLM over-flagging) + top severity earned-by-proof. 4→5 = destructive/data-loss claims must cite the destructive operation (del/pop/clear/reassign/truncate); an add-or-update in-place mutation (d[k]=v, map.put, append) that the finding calls "erases"/"loses" other entries is a false positive — catches misread-mechanism 🔴s. 5→6 = claim-class discipline: new `unverified` verdict + `claim_class`/`needs_observation` fields for runtime/data/rendering claims held on static evidence only (reading a template proves nothing about what the server returned or the user saw); cross-agent +10 bonus now requires methodologically independent evidence, not N agents re-reading the same file. Step 2.5b reuses prior verdicts only when this number matches the value stored in state.json. Bump on any persona/stance/scoring rubric change. -->
+<!-- version bump log: 1→2 = hostile/adversarial stance. 2→3 = security-audit escape for pre-existing 🔴/🟠 (see _shared.md). 3→4 = citation/behavior-grounding gate (claim must be provable from a cited source line, not inferred from naming) + hostile-to-finding-not-code framing (guards LLM over-flagging) + top severity earned-by-proof. 4→5 = destructive/data-loss claims must cite the destructive operation (del/pop/clear/reassign/truncate); an add-or-update in-place mutation (d[k]=v, map.put, append) that the finding calls "erases"/"loses" other entries is a false positive — catches misread-mechanism 🔴s. 5→6 = claim-class discipline: new `unverified` verdict + `claim_class`/`needs_observation` fields for runtime/data/rendering claims held on static evidence only (reading a template proves nothing about what the server returned or the user saw); cross-agent +10 bonus now requires methodologically independent evidence, not N agents re-reading the same file. 6→7 = three new inputs, one bump: (a) `<review_instructions>` — the repo's REVIEW.md, verbatim and highest-priority, may recalibrate severity but never the evidence discipline; (b) `<gate_results>` — Phase 1 deterministic-gate failures, as context for grounding not as findings; (c) `corroborating_agents` — how many personas independently reported the root cause, usable as an effort prior and tiebreak only, never as a substitute for the citation gate. Scoring rubric deliberately unchanged. Step 2.5b reuses prior verdicts only when this number matches the value stored in state.json. Bump on any persona/stance/scoring rubric change. -->
 
 
 # Phase 2.5 Verifier (Batch Mode)
@@ -30,8 +30,10 @@ For each finding, your output's `reason` field must state either:
 "Looks correct" is not an acceptable reason. Cite the disproof attempt explicitly.
 
 **Input you receive**:
+- `<review_instructions>` — the repo's `REVIEW.md` verbatim, when one exists (see `_shared.md` → **Repository review instructions**). Honor its severity recalibration and skip rules when judging a finding; it never relaxes the citation gate below. A severity `REVIEW.md` promotes must still be earned by proof at that tier, and a class of finding it tells the review to ignore is scored `drop` with `reason: "excluded by REVIEW.md"`.
+- `<gate_results>` — the Phase 1 deterministic-gate failures, when any gate failed. Context for grounding a finding (a failing test or type error is real evidence about behavior); never a finding in itself.
 - Source agent name (e.g., "bugs-and-security")
-- The full list of findings from that agent (each with file:line, severity, evidence, root-cause key, confidence)
+- The full list of findings from that agent (each with file:line, severity, evidence, root-cause key, confidence, and `corroborating_agents`)
 - The diff hunks and source for the files your findings reference (not the whole repo) — re-read the cited `file:line` yourself, and use `Read`/`Grep` on demand for the occasional cross-file check
 - Project Profile, CLAUDE.md rules
 - Findings from OTHER agents that share root-cause keys (so you can mark cross-confirmed items)
@@ -64,6 +66,12 @@ When your batch has findings across several files, issue the `Read`/`Grep` re-re
 If a finding's root-cause key appears in 2+ agents' lists: add +10 to the confidence score (capped at 100). Independent confirmation = more reliable.
 
 **But only when the confirmations are methodologically independent.** Agents share the same corpus and the same priors, so N agents reading the *same source file* and drawing the *same inference* is one inference reported N times, not N confirmations — and the bonus would reward the correlation. Award +10 only when the agents' `reread_evidence` cite **different artifacts or different classes of proof** (e.g. one cites source, another cites a test result, a recorded payload, or a documented framework contract). If every confirming agent's evidence is the same static read, award **+0** and note `correlated-evidence` in `reason`.
+
+## Corroboration signal (`corroborating_agents`)
+
+Each finding arrives with `corroborating_agents` — the number of distinct personas that independently reported this root cause, computed by `dedupe.py`. Use it in exactly two ways: as a **prior for where to spend re-read effort** (a 4-agent finding deserves the careful read first), and as a **tiebreak on a genuinely borderline score**.
+
+It is **never a substitute for verification**. The citation gate decides: a finding reported by four agents with no citable defect line is still a false positive and still drops; a single-agent finding with a solid citation still keeps. Agreement is not independence — the personas share a corpus and priors, so a high count can equally mean one wrong inference was obvious to everyone. This is why the count feeds no scoring bonus: the +10 cross-confirmation bonus above is a separate, stricter test that requires methodologically independent *evidence*, and a corroboration count alone never earns it.
 
 Run the disproof checks above **first**, then assign the score from their outcome — do not pick a score on first impression and rationalize it. Before emitting each verdict, self-check: "Did I actually re-read the cited source, or am I trusting the evidence snippet?" If you did not fetch the source, do so now.
 

@@ -1,0 +1,48 @@
+{
+  "id": "91-claude-md-stale-claim",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "CLAUDE.md documents two behaviors of the same module. The diff removes the retry loop, falsifying the first claim, while the second claim stays true. Tests that doc staleness is flagged with both citations, and that the still-true neighbouring claim is not swept up as noise.",
+    "files": {
+      "CLAUDE.md": {
+        "before": "# Project rules\n\n## Order processing\n\n- `processOrder()` retries a failed payment authorization 3 times with exponential backoff before giving up. Callers therefore do not need their own retry logic.\n- `processOrder()` never partially commits: an order is either fully persisted with its line items or not written at all.\n\n## Style\n\n- Prefer named exports over default exports.\n"
+      },
+      "src/orders/process.ts": {
+        "before": "import { authorize } from \"../payments/gateway\";\nimport { persist } from \"./repository\";\n\nconst MAX_ATTEMPTS = 3;\n\nasync function sleep(ms: number): Promise<void> {\n  return new Promise((resolve) => setTimeout(resolve, ms));\n}\n\nexport async function processOrder(order: Order): Promise<string> {\n  let lastError: unknown;\n  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {\n    try {\n      const auth = await authorize(order.totalCents);\n      return await persist(order, auth);\n    } catch (ex) {\n      lastError = ex;\n      await sleep(2 ** attempt * 100);\n    }\n  }\n  throw lastError;\n}\n\nexport interface Order {\n  id: string;\n  totalCents: number;\n  lineItems: LineItem[];\n}\n\nexport interface LineItem {\n  sku: string;\n  quantityUnits: number;\n}\n",
+        "after": "import { authorize } from \"../payments/gateway\";\nimport { persist } from \"./repository\";\n\nexport async function processOrder(order: Order): Promise<string> {\n  const auth = await authorize(order.totalCents);\n  return await persist(order, auth);\n}\n\nexport interface Order {\n  id: string;\n  totalCents: number;\n  lineItems: LineItem[];\n}\n\nexport interface LineItem {\n  sku: string;\n  quantityUnits: number;\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "stale-docs",
+        "file": "CLAUDE.md",
+        "min_severity": "SUGGESTED",
+        "verdict": "keep"
+      }
+    ],
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "stale-docs",
+        "file": "CLAUDE.md",
+        "note": "the partial-commit claim is still true and must not be reported stale"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS requires a finding stating that CLAUDE.md's claim about processOrder() retrying a failed authorization 3 times with exponential backoff is now false because the diff removed the retry loop (MAX_ATTEMPTS, the for loop, and sleep are gone), reported at SUGGESTED severity or above, and citing BOTH the CLAUDE.md sentence and the removed code. It is also acceptable — and not a FAIL — if the review additionally flags that callers relying on the documented retry now have none. FAIL if no docs-need-update finding is raised for the retry claim, if the finding is raised without quoting or clearly identifying the CLAUDE.md sentence it falsifies, or if the review ALSO claims the second bullet (processOrder never partially commits) is stale — that claim is untouched by this diff and reporting it stale is the precision failure this case guards."
+  },
+  "expected_behavior": [
+    "Consistency agent greps CLAUDE.md for the changed symbol and finds the falsified retry claim",
+    "The finding quotes the CLAUDE.md sentence and the removed retry code"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the still-true partial-commit claim as stale",
+    "Does NOT flag the unrelated named-exports style rule",
+    "Does NOT report the retry removal as a code-side CLAUDE.md rule violation AND a doc staleness finding at the same time"
+  ]
+}

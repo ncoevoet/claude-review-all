@@ -2,7 +2,7 @@
 
 Loaded by `/review-all` Phase 4. Presents the post-report menu (three modes), the guided triage loop, the three follow-up actions, the apply-fixes sub-menu, the loop, and guardrails.
 
-**Mandatory menu gate.** Presenting this menu is the closing step of every review, not an optional extra — see the gate in SKILL.md Phase 4. After printing the Phase 3 report you MUST present the primary menu via `AskUserQuestion` **in the same turn**. The ONLY case that skips it: every report section reads "None found." AND there is no appendix — then state `✅ No actionable findings — nothing to triage.` and stop. Ending the turn on the report without the menu is a silent failure (the #1 Phase 4 failure mode after a long `effort: high` review).
+**Mandatory menu gate.** Presenting this menu is the closing step of every review, not an optional extra — see the gate in SKILL.md Phase 4. After printing the Phase 3 report you MUST present the primary menu via `AskUserQuestion` **in the same turn**. The ONLY case that skips it: every report section reads "None found." AND there is no appendix AND no 🔬 unverified findings (nothing scoring 50–74, nothing awaiting observation) — then state `✅ No actionable findings — nothing to triage.` and stop. Ending the turn on the report without the menu is a silent failure (the #1 Phase 4 failure mode after a long `effort: high` review).
 
 **Report-before-menu ordering (hard rule).** Emit the COMPLETE Phase 3 report as user-visible text FIRST; the `AskUserQuestion` menu call must be the IMMEDIATELY NEXT action — zero tool calls between the report text and the menu call (no Write, no Bash, no export). Text emitted between tool calls may not render for the user, and the interactive menu pins to the prompt — any tool call in between makes the menu appear before (or without) the report, leaving the user to choose blind. Artifact writes (saving the report, exports) happen only after a menu choice. The menu's question text MUST carry the verdict summary (`Review done — N must-fix: X 🔴, Y 🟠 (+Z optional). Full report above ↑`) so the choice is decidable even when the report has scrolled off-screen.
 
@@ -36,7 +36,7 @@ Present a single-select menu via `AskUserQuestion` with at most four options, bu
 1. `fixable = (#🔴) + (#🟠) + (#🟡)`.
 2. If `fixable > 0`: options = [Fix by scope…, Triage one-by-one, More actions…, Skip / done] (exactly 4 — cap-safe). Mark **Fix by scope…** Recommended when any 🔴 exists, else mark **Triage one-by-one** Recommended.
 3. If `fixable == 0` but ≥1 🔵/⚪ or an appendix exists: drop both fix modes; options = [More actions…, Skip / done], **leading with More actions…** (this is the discoverability path when only suggestions/questions exist — 🔵 still fix via Mode C → "Apply fixes (alternate scopes)").
-4. If every section says "None found." AND no appendix → skip Phase 4 entirely (per the mandatory-menu gate's one exception).
+4. If every section says "None found." AND no appendix AND no 🔬 unverified findings → skip Phase 4 entirely (per the mandatory-menu gate's one exception).
 
 ## Mode A — Fix by scope…
 
@@ -186,12 +186,11 @@ For each finding in the chosen scope (file-then-line order):
 4. If `Edit` returns `String to replace not found` → record as `manual follow-up: code drifted since review-time` and move on. Do NOT retry on a guessed string — the evidence string is frozen at review-time, the file may have moved on (especially during multi-fix batches where earlier fixes shifted line numbers).
 5. Record per-finding outcome: `applied` / `manual follow-up` / `skipped (code changed)` / `guardrail-blocked`.
 
-After all edits, re-run Phase 1 gates against the modified tree:
+After all edits, re-run Phase 1 gates against the modified tree, then print this block under the `## Fix Results` heading:
 
 ## Fix Results
 
 ```
-## Fix Results
 - Scope: {chosen}
 - Applied: N | Manual follow-up: M | Skipped: K | Guardrail-blocked: G
 - Post-fix gates: Typecheck ✅/❌, Lint ✅/❌, Tests ✅/❌

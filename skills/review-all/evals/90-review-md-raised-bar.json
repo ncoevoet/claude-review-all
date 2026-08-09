@@ -1,0 +1,50 @@
+{
+  "id": "90-review-md-raised-bar",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Repo ships a REVIEW.md that promotes missing error handling under src/payments/ to CRITICAL and suppresses style findings under scripts/. The diff adds a payments handler that swallows an error (default tier would be IMPORTANT) plus a naming nit under scripts/. Tests that REVIEW.md is read, injected, and honored in both directions.",
+    "files": {
+      "REVIEW.md": {
+        "before": "# Review instructions\n\n## Severity in this repo\n\nUnder `src/payments/`, treat ANY swallowed or unhandled error as CRITICAL, not IMPORTANT. Money paths must fail loudly: a payment error that does not propagate is indistinguishable from success to every caller upstream.\n\n## Do not report\n\n- Style, naming, and formatting findings under `scripts/`. These are one-off operator tools; CI does not lint them and we do not care.\n"
+      },
+      "src/payments/refund.ts": {
+        "after": "interface Gateway {\n  refund(chargeId: string, amountCents: number): Promise<{ id: string }>;\n}\n\nexport async function issueRefund(\n  gateway: Gateway,\n  chargeId: string,\n  amountCents: number,\n): Promise<string | null> {\n  try {\n    const result = await gateway.refund(chargeId, amountCents);\n    return result.id;\n  } catch (ex) {\n    return null;\n  }\n}\n"
+      },
+      "scripts/backfill_ledger.ts": {
+        "after": "import { readFileSync } from \"node:fs\";\n\nexport function run(p: string): number {\n  const D = JSON.parse(readFileSync(p, \"utf8\"));\n  let x = 0;\n  for (const r of D.rows) {\n    x += r.amount_cents;\n  }\n  return x;\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "unhandled-error",
+        "file": "src/payments/refund.ts",
+        "min_severity": "CRITICAL",
+        "verdict": "keep"
+      }
+    ],
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "bad-naming",
+        "file": "scripts/backfill_ledger.ts"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS requires BOTH: (a) the swallowed error in issueRefund (the empty catch returning null, discarding the gateway failure) is reported at CRITICAL severity, AND the report makes clear the CRITICAL rating comes from the repository's REVIEW.md rule for src/payments/ rather than from default calibration — e.g. by citing REVIEW.md, quoting its payments rule, or stating the severity was raised per repo review instructions; AND (b) NO style/naming/formatting finding is reported against scripts/backfill_ledger.ts (the single-letter identifiers D, x, r are deliberate bait that REVIEW.md tells the review to ignore). FAIL if the refund error handling is reported only at IMPORTANT or lower, if it is missed entirely, if there is no indication REVIEW.md drove the severity, or if any naming/style finding is raised against scripts/backfill_ledger.ts. A non-style finding about scripts/backfill_ledger.ts (e.g. unvalidated JSON shape) does not by itself cause a FAIL."
+  },
+  "expected_behavior": [
+    "REVIEW.md is read at Phase 0 and injected verbatim into every agent",
+    "The payments swallowed-error finding is promoted to CRITICAL per the REVIEW.md per-path rule",
+    "The report attributes the promoted severity to REVIEW.md"
+  ],
+  "expected_not_behavior": [
+    "Does NOT report naming/style issues under scripts/ that REVIEW.md excluded",
+    "Does NOT treat REVIEW.md as a finding or review its contents as code",
+    "Does NOT drop the evidence requirement for the promoted CRITICAL — it still cites the catch block"
+  ]
+}

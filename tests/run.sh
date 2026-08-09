@@ -25,6 +25,26 @@ echo "== claim-class + provenance invariants gate =="
 bash "$HERE/check-claim-class.sh" || rc=1
 
 echo
+echo "== config key sync gate =="
+bash "$HERE/check-config-sync.sh" || rc=1
+
+echo
+echo "== REVIEW.md invariants gate =="
+bash "$HERE/check-review-md.sh" || rc=1
+
+echo
+echo "== per-agent diff ordering gate =="
+bash "$HERE/check-diff-order.sh" || rc=1
+
+echo
+echo "== gate-results + corroboration gate =="
+bash "$HERE/check-gate-results.sh" || rc=1
+
+echo
+echo "== doc-staleness invariants gate =="
+bash "$HERE/check-doc-staleness.sh" || rc=1
+
+echo
 echo "== eval schema validation =="
 python3 "$HERE/../skills/review-all/scripts/validate-evals.py" || rc=1
 

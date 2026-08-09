@@ -61,6 +61,30 @@ class TestDedupe(unittest.TestCase):
                              env={"REVIEW_ALL_SUGGESTED_CAP": "1"}).stdout)
         self.assertEqual(len([f for f in out["kept"] if f["severity"] == "SUGGESTED"]), 3)
 
+    def test_corroborating_agents_counts_single_agent_as_one(self):
+        out = json.loads(run([{"id": "1", "root_cause_key": "k", "severity": "DEBT",
+                               "source_agent": "a", "evidence": "e"}]).stdout)
+        self.assertEqual(out["kept"][0]["corroborating_agents"], 1)
+
+    def test_corroborating_agents_counts_distinct_agents(self):
+        findings = [{"id": str(i), "root_cause_key": "k", "severity": "CRITICAL",
+                     "source_agent": agent, "evidence": "e"}
+                    for i, agent in enumerate(["a", "b", "c"])]
+        out = json.loads(run(findings).stdout)
+        self.assertEqual(out["kept"][0]["corroborating_agents"], 3)
+
+    def test_corroborating_agents_collapses_same_agent_chunks(self):
+        """One agent reporting a key from several chunks is one corroboration, not N."""
+        findings = [{"id": str(i), "root_cause_key": "k", "severity": "CRITICAL",
+                     "source_agent": "a", "evidence": "e"} for i in range(4)]
+        out = json.loads(run(findings).stdout)
+        self.assertEqual(out["kept"][0]["corroborating_agents"], 1)
+
+    def test_corroborating_agents_present_on_every_kept_finding(self):
+        out = json.loads(run(suggested(5)).stdout)
+        for f in out["kept"]:
+            self.assertIn("corroborating_agents", f)
+
     def test_malformed_input_exits_2(self):
         p = subprocess.run([sys.executable, SCRIPT], input="not json",
                            capture_output=True, text=True)

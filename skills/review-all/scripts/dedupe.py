@@ -11,7 +11,10 @@ Reads a JSON array of findings on stdin. Each finding must have at minimum:
 Writes a JSON object on stdout with two fields:
   - kept: list of representative findings (one per root_cause_key), each
     annotated with `confirmed_by` = list of source_agent names that flagged
-    the same key (excluding the primary).
+    the same key (excluding the primary), and `corroborating_agents` = how many
+    distinct agents flagged it in total (including the primary). The verifier
+    reads the count as a where-to-look prior and a tiebreak, never as proof;
+    one agent reporting a key across several chunks still counts once.
   - dropped_global_cap: list of finding ids dropped because the per-severity
     global cap fired (SUGGESTED ≤ 10, QUESTION ≤ 8 by default; others uncapped).
 
@@ -92,6 +95,7 @@ def main():
         } - {""})
         primary = dict(primary)
         primary["confirmed_by"] = confirmed_by
+        primary["corroborating_agents"] = len({f.get("source_agent", "") for f in fs} - {""})
         kept.append(primary)
 
     by_sev = defaultdict(list)

@@ -1,7 +1,7 @@
 # /review-all
 
 [![CI](https://github.com/ncoevoet/claude-review-all/actions/workflows/ci.yml/badge.svg)](https://github.com/ncoevoet/claude-review-all/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-0.7.1-blue)](.claude-plugin/plugin.json)
+[![version](https://img.shields.io/badge/version-0.8.0-blue)](.claude-plugin/plugin.json)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)](https://code.claude.com/docs/en/plugins)
 
@@ -88,7 +88,7 @@ Examples:
 | 0.1 Resolve target | Parses `$ARGUMENTS` against the table above | Single source of truth for "what diff is being reviewed" |
 | 0.2 Load config + rules cache | Reads `.claude/review-all.json`; on cache HIT reuses the LLM-extracted global rules from `.claude/cache/review-all-profile.json` | Only the expensive LLM work (rules extraction) is cached — toolchain commands are re-probed fresh every run, so a `package.json`/`pom.xml` change can never be served stale |
 | 0.3 + 0.4 Toolchain | Folded into 0.0 — `detect-toolchain.sh` emits `{ecosystem, framework, test, lint, typecheck, build}` | Project-agnostic gate commands; never assumes Angular vs Spring vs Rust |
-| 0.5 Project rules | Reads root + nested CLAUDE.md files; the global half is skipped on cache HIT, module-level CLAUDE.md (changed dirs) always read fresh | "NEVER do X / ALWAYS do Y" steer the agents |
+| 0.5 Project rules | Reads root + nested CLAUDE.md files; the global half is skipped on cache HIT, module-level CLAUDE.md (changed dirs) always read fresh. Also reads repo-root `REVIEW.md` when present (never cached) | "NEVER do X / ALWAYS do Y" steer the agents; `REVIEW.md` overrides what gets flagged and at what severity |
 | 0.6 Test patterns | Folded into 0.0 — `test-pattern-probe.sh` infers location, suffix, framework | Spec Existence Check uses this; no hardcoded `__tests__` assumption |
 | 0.7 CodeGraph + MCP | Probes the live MCP tool registry (skipped entirely when 0.0 found no `.codegraph/`); records `toolchain.codegraphTools` keyed by capability | Tool names are not hardcoded — survives MCP-server renames |
 | 0.8 Gather diff | Computes diff + per-file slice, applies `--paths`/`--exclude`, recent commit log | Filter is enforced before any agent sees the diff |
@@ -109,6 +109,8 @@ The rules cache is keyed on a manifest of per-file content hashes over every rep
 
 Gate-confirmed findings are tagged `VERIFIED` and skip the verification phase. They are real, by definition.
 
+When a gate **fails**, its output is also handed to every agent and to the verifier as a `<gate_results>` block (failures only, truncated) — a compiler or test runner is ground truth no amount of reading matches, which is why hybrid static-analysis + LLM review outperforms either alone. Agents treat it as a lead to the underlying defect, never as a finding to restate: the failure is already on the report.
+
 ### Phase 1.5 — Runtime probe (optional, self-skipping)
 
 If a UI file changed AND a dev-server port is open AND `curl` exists:
@@ -126,11 +128,15 @@ Ten specialized agents review the (filtered) diff slice in parallel, each on its
 
 Agents share `_shared.md` (severity tiers, 3-question gate, quotas, auto-drop rules, codegraph-tool resolution).
 
+The consistency agent also checks docs in the reverse direction: when the diff falsifies a claim your `CLAUDE.md` or `README` makes, it raises a 🔵 docs-need-update finding — but only when it can quote both the doc sentence and the diff lines that contradict it. A doc that merely mentions the changed area is not stale.
+
+Each agent receives the same diff **in a different file order** (`scripts/agent-order.py`, a reproducible sha256-derived permutation per agent). Attention isn't uniform across a long prompt, so identical ordering would give all ten agents the same weak middle; permuting decorrelates that at zero token cost. Hunks within a file are never reordered, and chunk membership is computed on the canonical order first, so it stays identical across agents.
+
 Big diffs are auto-chunked (`chunkMaxFiles=40`, `chunkMaxBytes=200000`) and re-merged by `root_cause_key`.
 
 ### Phase 2.5 — Dedupe → adversarial verify
 
-1. **Dedupe** via `scripts/dedupe.py`: groups by `root_cause_key`, annotates `confirmed_by`, applies global caps (SUGGESTED ≤ 10, QUESTION ≤ 8).
+1. **Dedupe** via `scripts/dedupe.py`: groups by `root_cause_key`, annotates `confirmed_by` and `corroborating_agents` (how many personas independently reached this root cause — the verifier uses it to prioritize re-read effort and break borderline ties, never as a substitute for verification, and the report surfaces it as "Flagged independently by N agents"), applies global caps (SUGGESTED ≤ 10, QUESTION ≤ 8).
 2. **Verify** in parallel — one verifier per source agent, spawned at `verifierModel` tier (default Haiku — cheap, fast, JSON-bound). Verifier stance is **hostile to the finding, not the code**: assume every finding is wrong until disproven. Its primary gate is a **citation check** — a behavior claim must be provable from a quoted source line, not inferred from naming; ungrounded claims are dropped (or kept only as a ⚪ question). Top severity (🔴/🟠) must be earned by that proof.
 3. Score: `≥75` → main report, `50–74` → appendix, `<50` → silently dropped.
 4. **Claim class** — every finding is classified `static` / `runtime` / `data` / `rendering`, and must hold the proof its class demands. Reading a template proves what the template says; it proves nothing about what the server returned or what the user saw. A runtime/data/rendering claim backed only by a source read gets the `unverified` verdict — orthogonal to the score, so even a well-argued one lands there. It is neither asserted as fact nor dropped: it surfaces in the report's 🔬 section naming the exact observation that would settle it, and it never blocks gate mode.
@@ -172,10 +178,10 @@ A finding blocks only when its severity meets the floor (`gateSeverityFloor`, de
 
 Every change to this skill is **eval-driven** — the same develop-tests loop Anthropic recommends for agent harnesses:
 
-- **89 labeled scenarios** (`skills/review-all/evals/*.json`) across Java, TypeScript, Python, SQL, Go, and Rust. Most are *recall* cases (a planted real bug the review must catch: races, leaks, injections, N+1s, broken contracts…); a growing set are **precision counter-cases** — correct code that looks suspicious (an intentional `except Exception` boundary, a consistent lock discipline, a neutralized CSV export, a TODO comment) that must **NOT** become a finding. Two cases exercise gate mode end-to-end; two guard the profile cache (a poisoned legacy cache must MISS, a valid warm cache must HIT *and* still apply its rules).
+- **91 labeled scenarios** (`skills/review-all/evals/*.json`) across Java, TypeScript, Python, SQL, Go, and Rust. Most are *recall* cases (a planted real bug the review must catch: races, leaks, injections, N+1s, broken contracts…); a growing set are **precision counter-cases** — correct code that looks suspicious (an intentional `except Exception` boundary, a consistent lock discipline, a neutralized CSV export, a TODO comment) that must **NOT** become a finding. Two cases exercise gate mode end-to-end; two guard the profile cache (a poisoned legacy cache must MISS, a valid warm cache must HIT *and* still apply its rules); two cover the repo-convention files (a `REVIEW.md` that must raise one finding's severity and suppress another in the same review, and a `CLAUDE.md` claim the diff falsifies alongside a neighbouring claim that stays true) — these last two currently pass on the pre-feature baseline too, so they guard against regression rather than proving the features work; `evals/README.md` records why and how to fix them.
 - **Headless LLM-graded runner** (`scripts/run-evals-headless.sh`): each fixture is materialized into a throwaway git repo, `/review-all` runs there via `claude -p`, and a second LLM call grades the report against the case's rubric. Single runs flicker (LLM output is non-deterministic), so trustworthy baselines use `REVIEW_ALL_EVAL_RUNS=3+` and compare pass-*rates*.
 - **A/B before shipping**: persona or verifier edits are measured against the relevant eval subset with and without the change — a change that doesn't move recall without hurting precision is reverted. `scripts/eval-scorecard.py` turns the runner's per-case `RESULT`/`SCORE` lines into a suite-level **recall % / precision % / F1 / SNR** scorecard, so an A/B diffs an aggregate precision number, not just per-case PASS rates (the SNR is an honest suite-derived proxy, not a CR-Bench per-comment metric).
-- **No-API CI gates** on every push (`tests/run.sh`): anonymization check (no real project names in fixtures), eval-schema validation, shellcheck on all scripts, Python unit tests, and a static doc-invariant gate for the Phase 4 menu (`tests/check-phase4-menu.sh`) — the menu can't be exercised headlessly, so its invariants are grepped from the published docs instead.
+- **No-API CI gates** on every push (`tests/run.sh`): anonymization check (no real project names in fixtures), eval-schema validation, shellcheck on all scripts, Python unit tests, and a static doc-invariant gate per instruction-only feature — the Phase 4 menu, verifier votes, the dismissed digest, claim classes, `REVIEW.md`, diff ordering, `<gate_results>`, and doc staleness (`tests/check-*.sh`). Instructions can't be exercised headlessly, so their load-bearing sentences are grepped from the published docs instead, and each gate is proven non-vacuous by deleting the sentence on a scratch copy and confirming it fails. `tests/check-config-sync.sh` goes further and set-diffs SKILL.md's config schema against the documented key table, so that pair cannot drift again.
 - **Every real-world escape becomes a case**: a missed bug or a false positive observed in actual use is converted into a new eval before the fix lands, so it can never regress silently.
 
 See `skills/review-all/evals/README.md` for the schema, the full scenario list, and the iteration loop.
@@ -191,6 +197,41 @@ See `skills/review-all/evals/README.md` for the schema, the full scenario list, 
 | **Hostile verifier on Haiku** — cheap, fast, no confirmation bias | Verifier mis-scoring on truly novel patterns can hide a real finding in the appendix — escape via `verifierModel: "sonnet"`, or `verifierVotes: 3` to majority-vote 🔴/🟠 across independent passes |
 | **Lifecycle-aware** — snoozed/wontfix/stale tracked in `state.json`; dismissed findings are fed back to the agents as a `<previously_dismissed>` digest so the team's own wontfix decisions aren't re-derived; recurring findings auto-escalate after 3 sightings | State file is per-repo; not shared across team members. Intentional — comments are the team-wide channel |
 | **Plugin-free install** — `make install` and you're done | Not portable to claude.ai uploads or the Claude API runtime (uses git/gh/bash/filesystem). Claude Code only |
+
+## Review instructions (`REVIEW.md`)
+
+Drop a `REVIEW.md` at the repository root to change what this review flags, at what severity, and where. It is read fresh on every run (never cached) and injected **verbatim** into all ten agents and the verifier as the highest-priority instruction block — where it conflicts with a persona or with the shared rules, `REVIEW.md` wins. No configuration key is involved: the file is the interface.
+
+```markdown
+# Review instructions
+
+## What CRITICAL means here
+
+Reserve 🔴 for findings that break behavior, leak data, or block a rollback:
+incorrect logic, unscoped queries, PII in logs, non-backward-compatible
+migrations. Style and naming are 🟡 at most.
+
+## Raise the bar per path
+
+- In `scripts/`, only report if near-certain and severe.
+- In `src/payments/`, treat any missing error handling as 🔴 CRITICAL.
+
+## Do not report
+
+- Anything CI already enforces: lint, formatting, type errors
+- Generated files under `src/gen/` and any `*.lock` file
+
+## Always check
+
+- New API routes have an integration test
+- Database queries are scoped to the caller's tenant
+```
+
+Notes:
+
+- **Verbatim means verbatim** — the file is never summarized or truncated, and `@`-imports are **not** expanded (unlike `CLAUDE.md`). Write the rules you want enforced directly in the file. Keep it focused: a long `REVIEW.md` dilutes the rules that matter, and it is injected into eleven-plus prompts. Soft guideline ≤150 lines; over 10 KB the review warns.
+- **It steers what is reviewed, never how it is proven.** Severity recalibration, skip rules, and per-path bars are honored. The 3-question gate, claim classes, `file:line` evidence, and Phase 2.5 verification are not overridable — a severity `REVIEW.md` promotes still has to be earned by proof at that tier.
+- **In gate mode it moves findings across the blocking floor in both directions** — a promotion to 🔴 becomes CI-blocking under the default floor, and a demotion can un-block a real defect. Same trust model as `CLAUDE.md`: text committed to the repo is authoritative. When `REVIEW.md` is itself modified in the reviewed diff, the gate summary says so.
 
 ## Optional configuration
 
@@ -259,8 +300,10 @@ claude-review-all/
 │                             # dev-server-probe, test-pattern-probe, dedupe, state-sweep,
 │                             # gate-verdict, export-findings, validate-evals,
 │                             # materialize-fixture, run-evals, run-evals-headless,
-│                             # eval-scorecard (recall/precision/SNR aggregate)
+│                             # eval-scorecard (recall/precision/SNR aggregate),
+│                             # agent-order (per-agent diff permutation)
 ├── tests/                    # unit tests + check-anonymization.sh (gitignored blocklist)
+│                             # + one check-*.sh doc gate per instruction-only feature
 └── .github/workflows/ci.yml  # shellcheck + test suite (incl. anonymization + eval-schema gates)
 ```
 
