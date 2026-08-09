@@ -4,7 +4,7 @@
   "query": "/review-all",
   "fixture": {
     "kind": "synthetic-diff",
-    "description": "CLAUDE.md states an ARCHITECTURAL invariant in prose that shares no identifier with the diff: no third-party HTTP call happens during request handling, all external calls live in the nightly batch job. The diff adds exactly such a call inside a request handler. Because no changed symbol appears in the doc, the consistency agent's generic stale-reference mechanic (grep the docs for renamed symbols) cannot find it — only a rule that checks whether the diff falsifies a documented claim will. A neighbouring claim in the same file stays true and must not be swept in.",
+    "description": "CLAUDE.md states an ARCHITECTURAL invariant in prose that shares no identifier with the diff: no third-party HTTP call happens during request handling, all external calls live in the nightly batch job. The diff adds exactly such a call inside a request handler. The consistency agent catches this with NO explicit doc-staleness rule in its persona \u2014 measured across two fixture designs \u2014 which is why the v0.8.0 rule was reverted. This case guards that emergent behavior against regression. A neighbouring claim in the same file stays true and must not be swept in.",
     "files": {
       "CLAUDE.md": {
         "before": "# Project rules\n\n## Architecture\n\n- Request handling never performs third-party network calls. Every external provider is contacted from the nightly batch job in `jobs/`, and handlers read only from our own database and cache. This is what keeps p99 latency independent of provider outages.\n- Handlers must not write to the audit log directly; they enqueue audit events and the writer drains the queue.\n\n## Style\n\n- Prefer named exports over default exports.\n"
@@ -18,7 +18,7 @@
   "success_criteria": {
     "must_detect": [
       {
-        "root_cause_key_like": "stale-docs",
+        "root_cause_key_like": "other",
         "file": "CLAUDE.md",
         "min_severity": "SUGGESTED",
         "verdict": "keep"
@@ -26,7 +26,7 @@
     ],
     "must_not_flag": [
       {
-        "root_cause_key_like": "stale-docs",
+        "root_cause_key_like": "other",
         "file": "CLAUDE.md",
         "note": "the audit-log queue claim is untouched by this diff and must not be called stale"
       }
@@ -34,11 +34,11 @@
   },
   "grader": {
     "method": "llm-rubric",
-    "rubric": "PASS requires a finding stating that CLAUDE.md's documented architectural invariant — that request handling never performs third-party network calls, and every external provider is contacted from the nightly batch job — is now false, because handleQuote performs a live fetch() to rates.example.net during request handling. The finding must be raised as a documentation-staleness / docs-need-update issue (the documented invariant no longer describes the code) at SUGGESTED severity or above, and must make clear which CLAUDE.md claim is falsified. FAIL if no finding connects the new fetch() to the CLAUDE.md invariant, or if the review ALSO claims the second bullet (handlers must not write to the audit log directly; they enqueue audit events) is stale — nothing in this diff touches auditing, and reporting it stale is the precision failure this case guards. Findings about the fetch() itself on other grounds (added latency, no timeout, no error handling, unvalidated response) are expected and do NOT by themselves satisfy the requirement, nor do they cause a FAIL: the requirement is specifically that the documented invariant is identified as now-false."
+    "rubric": "PASS requires a finding stating that CLAUDE.md's documented architectural invariant \u2014 that request handling never performs third-party network calls, and every external provider is contacted from the nightly batch job \u2014 is now false, because handleQuote performs a live fetch() to rates.example.net during request handling. The finding must be raised as a documentation-staleness / docs-need-update issue (the documented invariant no longer describes the code) at SUGGESTED severity or above, and must make clear which CLAUDE.md claim is falsified. FAIL if no finding connects the new fetch() to the CLAUDE.md invariant, or if the review ALSO claims the second bullet (handlers must not write to the audit log directly; they enqueue audit events) is stale \u2014 nothing in this diff touches auditing, and reporting it stale is the precision failure this case guards. Findings about the fetch() itself on other grounds (added latency, no timeout, no error handling, unvalidated response) are expected and do NOT by themselves satisfy the requirement, nor do they cause a FAIL: the requirement is specifically that the documented invariant is identified as now-false."
   },
   "expected_behavior": [
     "The diff is checked against documented claims, not only against symbols the diff renamed",
-    "The falsified architectural invariant is quoted and paired with the new fetch() call"
+    "The falsified architectural invariant is identified and paired with the new fetch() call"
   ],
   "expected_not_behavior": [
     "Does NOT flag the still-true audit-log queue claim as stale",

@@ -96,79 +96,16 @@ A labeled scenario suite that probes whether the orchestrator catches what it sh
 | `88-stale-profile-cache` | profile cache | A poisoned LEGACY (`claudeMdHash`) profile cache claiming a Java/`mvn test` toolchain in a plainly-JS repo — must report cache MISS, detect the toolchain fresh (jest), and still catch the diff's null-deref regression. |
 | `89-warm-profile-cache` | profile cache | A VALID seeded v2 cache (`fixture.seed_profile_cache`, key computed by `discover.sh`) whose rules ban `console.log` under `src/lib/` — must report cache HIT and still flag the violation, proving cached rules are applied, not merely skipped. |
 | `90-review-md-raised-bar` | REVIEW.md | An unchanged repo-root `REVIEW.md` promotes swallowed errors under `src/payments/` to CRITICAL and suppresses style findings under `scripts/`. The diff supplies both — must promote the refund `catch` to CRITICAL *and* attribute it to REVIEW.md, while staying silent on the deliberate naming bait in `scripts/`. **Known non-discriminating** — see the note below. |
-| `91-claude-md-stale-claim` | doc staleness | `CLAUDE.md` documents two behaviors; the diff removes the retry loop, falsifying the first while the second stays true. Must raise a `stale-docs` finding citing both the doc sentence and the removed code — and must NOT sweep in the still-true neighbouring claim. **Known non-discriminating** — see the note below. |
+| `91-claude-md-stale-claim` | doc staleness (emergent) | A `CLAUDE.md` architectural invariant stated in prose that shares no identifier with the diff — no third-party call during request handling — falsified by a `fetch()` added inside a handler. The consistency agent catches this **without any explicit rule**, which is why the rule was reverted; the case now guards that emergent behavior against regression. |
 
 | `92-failing-test-gate-lead` | gate results | The first fixture with a **runnable toolchain whose gates genuinely fail**: `package.json` points `test` at plain `node tests/run-tests.js` (no dependencies to install), and the diff breaks `applyDiscount` so it subtracts the percent as flat cents. Must show the test gate FAIL *with provenance* in the gate table and name the underlying percentage bug. Exercises Phase 1 end-to-end and the `<gate_results>` block. |
 
-> **Cases 90 and 91 were rewritten after their first A/B; the note below records why.**
-> The original versions did not demonstrate the features they were written for. The v0.8.0 A/B (N=3, both arms) recorded **PASS 3/3 on the v0.7.1 baseline as well as on the treatment**, so they measured nothing about `REVIEW.md` support or the doc-staleness rule. Both were fixture-design flaws:
+> **What the A/B of these cases established (v0.8.0, N=3, both arms).**
 >
-> - `90` picked a defect (an empty `catch` swallowing a payment failure) that default calibration *already* rates CRITICAL, and bait (single-letter locals in a script) the baseline *already* ignores — neither direction of the `REVIEW.md` rule was observable. **Rewritten** around a two-line rounding duplication (default DEBT, promoted to CRITICAL by `REVIEW.md`) and an unvalidated-input defect under `scripts/` that a review normally *does* report and `REVIEW.md` suppresses outright.
-> - `91` was subtler: agent 04's existing mechanic — "the diff changed X, grep unchanged artifacts for stale references to X" — already treats `CLAUDE.md` as just another unchanged artifact, so the baseline found the stale claim without the explicit rule. **Rewritten** around an architectural invariant stated in prose that shares *no identifier* with the diff (no third-party call during request handling), which the generic symbol-grep cannot reach.
+> - **`90` proves `REVIEW.md` support works.** Baseline v0.7.1 **FAIL (1/3)**, treatment **PASS (3/3)**. Its first version was non-discriminating — it used a defect default calibration already rated CRITICAL and bait the baseline already ignored — so it was rebuilt around a two-line rounding duplication (defaults to DEBT, `REVIEW.md` promotes to CRITICAL) plus an unvalidated-input defect under `scripts/` that a review normally *does* report and `REVIEW.md` suppresses. Both directions now require the feature.
+> - **`91` proved the doc-staleness rule was redundant, and the rule was reverted.** Two independent fixture designs, both **PASS 3/3 on the baseline**: first a doc claim naming a symbol the diff changed (reachable by the existing stale-reference grep), then an architectural invariant in prose sharing *no* identifier with the diff — deliberately built to be out of that mechanic's reach. The consistency agent found it anyway. The case is kept as a regression guard for behavior that is emergent rather than instructed.
+> - **`92` is a regression guard, not evidence.** Both arms **PASS 3/3**: a failing Phase 1 gate is caught with or without the `<gate_results>` block, since the gate itself already produces a VERIFIED finding. Its value is that it is the only fixture whose gates genuinely run and fail.
+> - **`02` cannot serve as an A/B instrument.** Run twice on identical baseline code it returned `PASS (2/3)` then `FAIL (1/3)`, with no timeouts or errors in the raw logs. Per-agent diff ordering, which only `02` exercises, therefore remains **unmeasured** — neither proven nor regressing.
 >
-> **The general rule this produced: treat any case's pass as meaningless until the baseline arm has been shown to fail it.** Run the baseline arm on every new case, not just the treatment — a case that both arms pass is a regression guard, not evidence.
+> **The rule all of this produced: a case proves nothing until the baseline arm has been shown to fail it.** Run the baseline arm on every new case, not just the treatment. A case both arms pass is a regression guard; only a case the baseline fails and the treatment passes is evidence.
 
-92 cases as of this writing. Cases 16–41 were grown from real-world bug-fix patterns; cases 42–55 add a Java concurrency / resource / security flavor (plus a thread-safety precision counter-case, `55`); cases 56–61 add more Java bug classes (format-string misuse, default-charset, AB-BA deadlock, signal-before-state, shallow-clone aliasing, comparator-vs-head-insert); cases 62–71 add **Python / TypeScript / SQL** coverage (import-shadowing, wall-vs-monotonic clock mix, three-valued SQL NULL, FK-cascade orphans, CSV/formula injection CWE-1236, stale-async-response, plus two precision counter-cases `70`/`71`); cases 72–80 add **Go and Rust** coverage (nil-map write, err-shadowing, goroutine leak, defer-in-loop, unwrap-panic, blocking-in-async, mutex-across-await, plus two precision counter-cases `79`/`80`); cases 81–84 are **precision counter-cases that guard the cycle-7 recall checks** (a correct boundary `except`, an intentional SQL NULL-exclusion, consistent lock discipline, a neutralized CSV export) from over-firing — all anonymized from real fix patterns, no provenance in the fixtures. Case 85 adds a **comment-bait precision counter-case** (a correct function with a `# TODO` noting a future enhancement): a deferred-work TODO must NOT be mistaken for a defect in the current change. (Two further comment/pragma precision experiments were dropped because the review skill correctly flagged *real* bugs they inadvertently contained — a cap-after-jitter overflow and a `# type: ignore` with a fabricated justification — out-catching the fixture generator's own adversarial verifiers, a reassuring sign of the skill's precision.) Cases 86–87 exercise **gate mode** end-to-end (blocking critical → `pass:false`; debt-only under a critical floor → `pass:true`); cases 88–89 guard the **Phase-0 profile cache** (a poisoned legacy cache must MISS and never leak its toolchain; a valid warm cache must HIT and its rules must still be applied); cases 90–91 cover the **repo-convention files** — a `REVIEW.md` that must both raise and suppress in one review, and a `CLAUDE.md` claim the diff falsifies (each carrying its own precision counter inside the same fixture, so one case measures recall and noise-resistance together); both were **rewritten** after their first A/B showed the originals were non-discriminating (see the note above the schema section); case 92 adds the first fixture whose Phase 1 gates genuinely fail, exercising `<gate_results>` end-to-end. Cases are schema-checked by `scripts/validate-evals.py` (a CI gate). Per the develop-tests guidance, keep growing (remaining ideas: sarcastic/ambiguous comments that should not become findings, huge multi-thousand-line diffs, mixed-language repos). Claude can generate additional cases from this baseline set.
-
-## Schema
-
-Each scenario is a `*.json` file:
-
-| Field | Purpose |
-|-------|---------|
-| `id`, `skill`, `query` | Identity + the `/review-all` invocation to run. |
-| `fixture` | A materializable spec. `kind: "synthetic-diff"` with `files{path:{before?,after?}}` (omit `after` for an unchanged file, `before` for an added file), or `rename_only`+`files_changed` for a generated mass-rename. Optional `seed_profile_cache` pre-seeds `.claude/cache/review-all-profile.json` after staging (untracked, invisible to the diff): `{"raw": {...}}` writes verbatim (poisoned/legacy cases), `{"rules": "..."}` writes a valid v2 profile keyed by the sibling `discover.sh` (warm-cache cases). |
-| `success_criteria` | **Measurable** targets: `must_detect[]` (root-cause-key shape, file, `min_severity`, `verdict`), `must_not_flag[]`, `max_critical`, `max_total_findings`, `must_spawn_agent`, `must_not_error`. Gate-mode cases (`/review-all gate`) add `gate{pass, min_blocking|max_blocking}`. |
-| `grader` | `method: "llm-rubric"` + a `rubric` string for LLM-as-judge grading (the method the develop-tests doc recommends for nuanced report grading). |
-| `expected_behavior[]` / `expected_not_behavior[]` | Legacy keyword assertions, kept for the manual runner. |
-
-## Running
-
-### Headless + LLM-graded (automated — for iteration cycles)
-
-```bash
-# Install the skill first (plugin: /plugin install review-all@ncoevoet, or make install)
-# so /review-all resolves globally; the runner reviews via the installed copy.
-bash ../scripts/run-evals-headless.sh         # all cases, 1 run each
-bash ../scripts/run-evals-headless.sh 03      # one case by id prefix
-REVIEW_ALL_EVAL_RUNS=3 bash ../scripts/run-evals-headless.sh   # 3 runs/case, scored by majority
-```
-
-Leave `REVIEW_ALL_EVAL_EFFORT` UNSET to measure at the real operating point. On Opus 4.8, low/medium effort *suppresses recall* (the model does the same investigation but reports fewer findings), so an old `--effort low` run understates the skill; the skill pins `effort: high` in its frontmatter as a floor.
-
-LLM review/grade output is non-deterministic, so a single run is a noisy signal (a clean case can flip PASS↔FAIL between runs). For a trustworthy baseline — and before attributing a prompt change to a score delta — set `REVIEW_ALL_EVAL_RUNS` to 3+ and compare pass-rates, not single results. A review that errors out (empty/`API Error`) is retried once and, if still bad, reported as `ERROR` (not `FAIL`) so infra flakes don't masquerade as quality regressions.
-
-For each case it materializes the fixture into a throwaway temp git repo (`scripts/materialize-fixture.py`), runs `/review-all` there via `claude -p`, then grades the report against the case's `grader.rubric` with a second `claude -p` call. Prints `RESULT,<id>,PASS|FAIL` lines so you can diff scores across prompt revisions, plus a `SCORE,<id>,<crit>,<imp>,<debt>,<sug>,<q>,<total>` line per graded run (parsed from the report's `<!-- review-all-severity -->` tally) that feeds the scorecard below. Requires the `claude` CLI; the fixture repos are isolated and disposable.
-
-### Scorecard — aggregate recall / precision / SNR
-
-Per-case `PASS|FAIL` answers "did this case work"; it does not answer "what is the suite's precision". `scripts/eval-scorecard.py` aggregates the runner's `RESULT`/`SCORE` lines (from a file or stdin) into a suite-level scorecard:
-
-```bash
-bash ../scripts/run-evals-headless.sh | tee results.txt
-python3 ../scripts/eval-scorecard.py results.txt      # or: ... | python3 ../scripts/eval-scorecard.py
-```
-
-It classifies each case from its `success_criteria`: **recall** when `must_detect` is present, **precision counter-case** otherwise (correct code that must NOT be flagged), and reports:
-
-- **Recall%** — pass-rate over recall cases.
-- **Precision%** — pass-rate over precision counter-cases (noise-resistance).
-- **F1** — harmonic mean of the two.
-- **SNR (proxy)** — `signal / noise` finding counts from the `SCORE` lines: signal = 🔴+🟠 findings on recall cases (capped per case at its `must_detect` count, so one over-flagging recall case can't inflate it); noise = 🔴+🟠 findings on precision counter-cases. It is a **proxy** — suite-derived from the case labels and the report's severity tally, **not** a CR-Bench-style per-comment ground-truth SNR — reported as approximate. Recall/Precision/F1 need only `RESULT` lines (works against an old results file with no harness change); SNR additionally needs `SCORE` lines and is omitted when absent.
-
-The last printed line is machine-readable (`SCORECARD,recall=…,precision=…,f1=…,snr=…,signal=…,noise=…`) so an A/B run can diff precision/SNR before and after a prompt change, not just the per-case PASS rate.
-
-### Manual (no API — quick smoke check)
-
-```bash
-bash ../scripts/run-evals.sh        # prompts you to paste a report path; keyword-grades
-```
-
-## Iteration loop (develop-tests cycle)
-
-1. Run `run-evals-headless.sh` to get a baseline PASS rate.
-2. Change one prompt (e.g. an agent persona or the verifier rubric).
-3. Re-run; compare PASS rate against the baseline. Keep the change only if it improves the suite without regressing other cases.
-4. Grow the suite when a real-world miss/false-positive escapes it — every escape becomes a new case.
-
-The JSON files are the authoritative artifact; both runners consume them unchanged.
