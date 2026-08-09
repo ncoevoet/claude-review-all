@@ -1,0 +1,44 @@
+{
+  "id": "92-failing-test-gate-lead",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A runnable JS toolchain (package.json test script -> plain node, no dependencies) whose test suite genuinely FAILS on the diff: applyDiscount now subtracts the percent as flat cents instead of a percentage. Exercises the Phase 1 test gate end-to-end and the <gate_results> block that carries failing output to the agents. The failing lines name the expected and actual values, so the review has tool-grade evidence for the defect.",
+    "files": {
+      "package.json": {
+        "before": "{\n  \"name\": \"shipping-quotes\",\n  \"private\": true,\n  \"scripts\": {\n    \"test\": \"node tests/run-tests.js\"\n  }\n}\n"
+      },
+      "tests/run-tests.js": {
+        "before": "const { applyDiscount, quoteTotal } = require(\"../src/pricing.js\");\n\nconst discountCases = [\n  [1000, 10, 900],\n  [500, 0, 500],\n  [2000, 50, 1000],\n];\n\nlet failed = 0;\nfor (const [cents, percent, want] of discountCases) {\n  const got = applyDiscount(cents, percent);\n  if (got !== want) {\n    console.error(\n      `FAIL applyDiscount(${cents}, ${percent}): expected ${want}, got ${got}`,\n    );\n    failed++;\n  }\n}\n\nif (quoteTotal([1000, 2000], 10) !== 2700) {\n  console.error(`FAIL quoteTotal([1000,2000], 10): expected 2700, got ${quoteTotal([1000, 2000], 10)}`);\n  failed++;\n}\n\nconsole.log(`${discountCases.length + 1 - failed} passed, ${failed} failed`);\nprocess.exit(failed > 0 ? 1 : 0);\n"
+      },
+      "src/pricing.js": {
+        "before": "function applyDiscount(cents, percent) {\n  return cents - Math.round((cents * percent) / 100);\n}\n\nfunction quoteTotal(lines, percent) {\n  return applyDiscount(lines.reduce((a, b) => a + b, 0), percent);\n}\n\nmodule.exports = { applyDiscount, quoteTotal };\n",
+        "after": "function applyDiscount(cents, percent) {\n  return cents - percent;\n}\n\nfunction quoteTotal(lines, percent) {\n  return applyDiscount(lines.reduce((a, b) => a + b, 0), percent);\n}\n\nmodule.exports = { applyDiscount, quoteTotal };\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "other",
+        "file": "src/pricing.js",
+        "min_severity": "CRITICAL",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS requires BOTH: (a) the report's Phase 1 gate table shows the test gate as FAIL (not SKIP, not N/A, not PASS) with its provenance \u2014 the command that was run, its exit code, and the time; AND (b) a finding identifies the defect in applyDiscount, namely that it subtracts `percent` as a flat cent amount (`cents - percent`) instead of computing a percentage of `cents`, reported at CRITICAL or IMPORTANT severity. Credit (b) whether the finding cites the failing test output or the source line directly. FAIL if the gate table does not show the test gate failing, or if no finding identifies the applyDiscount percentage bug. Do NOT fail the case merely because the review also reports the knock-on effect on quoteTotal, which shares the same root cause."
+  },
+  "expected_behavior": [
+    "Phase 1 runs the detected `node tests/run-tests.js` test command and records FAIL with provenance",
+    "The failing expectations are available to the agents as a lead to the underlying defect",
+    "The applyDiscount percentage bug is reported at top severity, as tool-confirmed evidence exists"
+  ],
+  "expected_not_behavior": [
+    "Does NOT report the gate failure itself as the finding without naming the underlying defect",
+    "Does NOT mark the test gate PASS or SKIP when the command exited non-zero"
+  ]
+}

@@ -4,14 +4,14 @@
   "query": "/review-all",
   "fixture": {
     "kind": "synthetic-diff",
-    "description": "CLAUDE.md documents two behaviors of the same module. The diff removes the retry loop, falsifying the first claim, while the second claim stays true. Tests that doc staleness is flagged with both citations, and that the still-true neighbouring claim is not swept up as noise.",
+    "description": "CLAUDE.md states an ARCHITECTURAL invariant in prose that shares no identifier with the diff: no third-party HTTP call happens during request handling, all external calls live in the nightly batch job. The diff adds exactly such a call inside a request handler. Because no changed symbol appears in the doc, the consistency agent's generic stale-reference mechanic (grep the docs for renamed symbols) cannot find it — only a rule that checks whether the diff falsifies a documented claim will. A neighbouring claim in the same file stays true and must not be swept in.",
     "files": {
       "CLAUDE.md": {
-        "before": "# Project rules\n\n## Order processing\n\n- `processOrder()` retries a failed payment authorization 3 times with exponential backoff before giving up. Callers therefore do not need their own retry logic.\n- `processOrder()` never partially commits: an order is either fully persisted with its line items or not written at all.\n\n## Style\n\n- Prefer named exports over default exports.\n"
+        "before": "# Project rules\n\n## Architecture\n\n- Request handling never performs third-party network calls. Every external provider is contacted from the nightly batch job in `jobs/`, and handlers read only from our own database and cache. This is what keeps p99 latency independent of provider outages.\n- Handlers must not write to the audit log directly; they enqueue audit events and the writer drains the queue.\n\n## Style\n\n- Prefer named exports over default exports.\n"
       },
-      "src/orders/process.ts": {
-        "before": "import { authorize } from \"../payments/gateway\";\nimport { persist } from \"./repository\";\n\nconst MAX_ATTEMPTS = 3;\n\nasync function sleep(ms: number): Promise<void> {\n  return new Promise((resolve) => setTimeout(resolve, ms));\n}\n\nexport async function processOrder(order: Order): Promise<string> {\n  let lastError: unknown;\n  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {\n    try {\n      const auth = await authorize(order.totalCents);\n      return await persist(order, auth);\n    } catch (ex) {\n      lastError = ex;\n      await sleep(2 ** attempt * 100);\n    }\n  }\n  throw lastError;\n}\n\nexport interface Order {\n  id: string;\n  totalCents: number;\n  lineItems: LineItem[];\n}\n\nexport interface LineItem {\n  sku: string;\n  quantityUnits: number;\n}\n",
-        "after": "import { authorize } from \"../payments/gateway\";\nimport { persist } from \"./repository\";\n\nexport async function processOrder(order: Order): Promise<string> {\n  const auth = await authorize(order.totalCents);\n  return await persist(order, auth);\n}\n\nexport interface Order {\n  id: string;\n  totalCents: number;\n  lineItems: LineItem[];\n}\n\nexport interface LineItem {\n  sku: string;\n  quantityUnits: number;\n}\n"
+      "src/api/quote_handler.ts": {
+        "before": "import { cache } from \"../infra/cache\";\nimport { db } from \"../infra/db\";\n\ninterface QuoteRequest {\n  shipmentId: string;\n}\n\nexport async function handleQuote(req: QuoteRequest): Promise<number> {\n  const cached = await cache.get(`quote:${req.shipmentId}`);\n  if (cached !== null) {\n    return Number(cached);\n  }\n  const row = await db.quotes.findOne({ shipmentId: req.shipmentId });\n  return row.priceCents;\n}\n",
+        "after": "import { cache } from \"../infra/cache\";\nimport { db } from \"../infra/db\";\n\ninterface QuoteRequest {\n  shipmentId: string;\n}\n\nexport async function handleQuote(req: QuoteRequest): Promise<number> {\n  const cached = await cache.get(`quote:${req.shipmentId}`);\n  if (cached !== null) {\n    return Number(cached);\n  }\n  const row = await db.quotes.findOne({ shipmentId: req.shipmentId });\n  const live = await fetch(\n    `https://rates.example.net/v1/surcharge?shipment=${req.shipmentId}`,\n  );\n  const surcharge = (await live.json()).surchargeCents;\n  return row.priceCents + surcharge;\n}\n"
       }
     }
   },
@@ -28,21 +28,21 @@
       {
         "root_cause_key_like": "stale-docs",
         "file": "CLAUDE.md",
-        "note": "the partial-commit claim is still true and must not be reported stale"
+        "note": "the audit-log queue claim is untouched by this diff and must not be called stale"
       }
     ]
   },
   "grader": {
     "method": "llm-rubric",
-    "rubric": "PASS requires a finding stating that CLAUDE.md's claim about processOrder() retrying a failed authorization 3 times with exponential backoff is now false because the diff removed the retry loop (MAX_ATTEMPTS, the for loop, and sleep are gone), reported at SUGGESTED severity or above, and citing BOTH the CLAUDE.md sentence and the removed code. It is also acceptable — and not a FAIL — if the review additionally flags that callers relying on the documented retry now have none. FAIL if no docs-need-update finding is raised for the retry claim, if the finding is raised without quoting or clearly identifying the CLAUDE.md sentence it falsifies, or if the review ALSO claims the second bullet (processOrder never partially commits) is stale — that claim is untouched by this diff and reporting it stale is the precision failure this case guards."
+    "rubric": "PASS requires a finding stating that CLAUDE.md's documented architectural invariant — that request handling never performs third-party network calls, and every external provider is contacted from the nightly batch job — is now false, because handleQuote performs a live fetch() to rates.example.net during request handling. The finding must be raised as a documentation-staleness / docs-need-update issue (the documented invariant no longer describes the code) at SUGGESTED severity or above, and must make clear which CLAUDE.md claim is falsified. FAIL if no finding connects the new fetch() to the CLAUDE.md invariant, or if the review ALSO claims the second bullet (handlers must not write to the audit log directly; they enqueue audit events) is stale — nothing in this diff touches auditing, and reporting it stale is the precision failure this case guards. Findings about the fetch() itself on other grounds (added latency, no timeout, no error handling, unvalidated response) are expected and do NOT by themselves satisfy the requirement, nor do they cause a FAIL: the requirement is specifically that the documented invariant is identified as now-false."
   },
   "expected_behavior": [
-    "Consistency agent greps CLAUDE.md for the changed symbol and finds the falsified retry claim",
-    "The finding quotes the CLAUDE.md sentence and the removed retry code"
+    "The diff is checked against documented claims, not only against symbols the diff renamed",
+    "The falsified architectural invariant is quoted and paired with the new fetch() call"
   ],
   "expected_not_behavior": [
-    "Does NOT flag the still-true partial-commit claim as stale",
+    "Does NOT flag the still-true audit-log queue claim as stale",
     "Does NOT flag the unrelated named-exports style rule",
-    "Does NOT report the retry removal as a code-side CLAUDE.md rule violation AND a doc staleness finding at the same time"
+    "Does NOT report this only as a latency/error-handling bug while leaving the stale invariant unmentioned"
   ]
 }
