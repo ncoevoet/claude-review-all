@@ -1,7 +1,7 @@
 # /review-all
 
 [![CI](https://github.com/ncoevoet/claude-review-all/actions/workflows/ci.yml/badge.svg)](https://github.com/ncoevoet/claude-review-all/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-0.8.1-blue)](.claude-plugin/plugin.json)
+[![version](https://img.shields.io/badge/version-0.9.0-blue)](.claude-plugin/plugin.json)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)](https://code.claude.com/docs/en/plugins)
 
@@ -128,6 +128,10 @@ Ten specialized agents review the (filtered) diff slice in parallel, each on its
 
 Agents share `_shared.md` (severity tiers, 3-question gate, quotas, auto-drop rules, codegraph-tool resolution).
 
+**Every spawn names its model, per axis.** The axes whose findings are claims about *behavior* — bugs+security, security-deep-dive, performance, API-contract — run on `opus`; the axes that match code against a *known shape* — standards, DRY, consistency, simplification, test-quality, a11y/i18n — run on `sonnet`. The tier is declared in each persona's frontmatter (`model:`), so it travels with the persona; an omitted model would silently inherit the session's tier and put mechanical axes on the expensive one. Precision does not depend on the tier: every finding still faces the hostile verifier, so a weaker axis over-flagging costs a verifier call, not a false positive.
+
+**Completed axes are checkpointed** to `.claude/review-all/checkpoints/<axis>.json` and resumed on a re-run, so an interrupted review (session cut, cancelled CI job) does not re-pay for the agents that already returned. The key is deliberately all-or-nothing — sha256 over the reviewed HEAD, the exact diff bytes, `SKILL.md` + every persona, and `REVIEW.md` + `.claude/review-all.json` — so any change to the code, the scope, or the reviewer definitions discards every checkpoint. Only complete returns are saved (a timed-out axis re-runs), findings are stored pre-verification, and the report names each resumed axis. Delete the directory to force a full re-run.
+
 Each agent receives the same diff **in a different file order** (`scripts/agent-order.py`, a reproducible sha256-derived permutation per agent). Attention isn't uniform across a long prompt, so identical ordering would give all ten agents the same weak middle; permuting decorrelates that at zero token cost. Hunks within a file are never reordered, and chunk membership is computed on the canonical order first, so it stays identical across agents.
 
 Big diffs are auto-chunked (`chunkMaxFiles=40`, `chunkMaxBytes=200000`) and re-merged by `root_cause_key`.
@@ -191,7 +195,7 @@ See `skills/review-all/evals/README.md` for the schema, the full scenario list, 
 | **No false positives by design** — every finding survives adversarial re-read | Two-pass model (agents + verifier) costs more tokens than a single-shot review |
 | **Project-agnostic** — discovers conventions from the repo, never assumes them | Discovery probes run on every review (one script call, ~1s); only the CLAUDE.md rules extraction is cached — by design, so toolchain data is never stale |
 | **Filtered scope** — `--paths`/`--exclude` and interactive workspace pruning honor the user's actual focus | The multi-workspace prompt only fires above 50 files / multiple roots — adjust expectations on small repos |
-| **Deterministic ops in scripts** — preflight, toolchain, test-pattern, dev-server, dedupe, state-sweep all live in `scripts/`. Reliability + token savings + auditable | Requires bash + Python 3 on the developer machine (default on macOS/Linux; fine in WSL) |
+| **Deterministic ops in scripts** — preflight, toolchain, test-pattern, dev-server, dedupe, state-sweep, checkpoint all live in `scripts/`. Reliability + token savings + auditable | Requires bash + Python 3 on the developer machine (default on macOS/Linux; fine in WSL) |
 | **Hostile verifier on Haiku** — cheap, fast, no confirmation bias | Verifier mis-scoring on truly novel patterns can hide a real finding in the appendix — escape via `verifierModel: "sonnet"`, or `verifierVotes: 3` to majority-vote 🔴/🟠 across independent passes |
 | **Lifecycle-aware** — snoozed/wontfix/stale tracked in `state.json`; dismissed findings are fed back to the agents as a `<previously_dismissed>` digest so the team's own wontfix decisions aren't re-derived; recurring findings auto-escalate after 3 sightings | State file is per-repo; not shared across team members. Intentional — comments are the team-wide channel |
 | **Plugin-free install** — `make install` and you're done | Not portable to claude.ai uploads or the Claude API runtime (uses git/gh/bash/filesystem). Claude Code only |
@@ -299,7 +303,8 @@ claude-review-all/
 │                             # gate-verdict, export-findings, validate-evals,
 │                             # materialize-fixture, run-evals, run-evals-headless,
 │                             # eval-scorecard (recall/precision/SNR aggregate),
-│                             # agent-order (per-agent diff permutation)
+│                             # agent-order (per-agent diff permutation),
+│                             # checkpoint (per-axis resume store)
 ├── tests/                    # unit tests + check-anonymization.sh (gitignored blocklist)
 │                             # + one check-*.sh doc gate per instruction-only feature
 └── .github/workflows/ci.yml  # shellcheck + test suite (incl. anonymization + eval-schema gates)

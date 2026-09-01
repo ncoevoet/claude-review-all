@@ -45,6 +45,8 @@ Gate mode runs Phases 0–2.75 unchanged, so a repo's `REVIEW.md` (SKILL.md Step
 
 Gate mode still runs Phase 2.5's `state.json` lifecycle sweep and appends to `history.jsonl` (it is a real review). Idempotent re-runs on the same SHA reuse prior verdicts via the normal state-reuse fast path. This means a loop that re-invokes the gate on an unchanged tree pays near-zero verifier cost.
 
+Phase 2's per-axis checkpoints (`phase-2-agents.md` → *Checkpoint resume*) apply unchanged, and headless runs are where they pay most: a scheduled or CI gate that is cancelled mid-Phase-2 resumes the axes that had already returned instead of re-spawning all ten, provided HEAD, the diff, the personas and `REVIEW.md` are identical.
+
 ## Verdict shape
 
 ```json

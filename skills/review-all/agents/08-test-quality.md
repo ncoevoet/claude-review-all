@@ -1,6 +1,7 @@
 ---
 name: test-quality
 description: Review test code in the diff — assertion quality, branch coverage of new code, mock realism, brittle patterns. Distinct from "spec existence" check.
+model: sonnet
 ---
 
 # Agent 8: Test Quality

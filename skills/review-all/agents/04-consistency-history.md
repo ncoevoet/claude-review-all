@@ -1,6 +1,7 @@
 ---
 name: consistency-and-history
 description: Analyze git history and cross-file consistency — stale references, dead code, broken importers after renames/removals, established-convention enforcement.
+model: sonnet
 ---
 
 # Agent 4: Consistency & History

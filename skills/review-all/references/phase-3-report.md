@@ -108,7 +108,9 @@ The Summary's **Files Changed** line breaks the diff down by `git` change type (
 - **Risk Level**: Low / Medium / High
 - **Merge-readiness**: {pct}% — {resolved}/{total} must-fix resolved {| ✅ ready to merge}
 - **Findings**: X 🔴 Critical, Y 🟠 Important, Z 🟡 Debt, W 🔵 Suggested, V ⚪ Questions
-- **Agents run**: {list}
+- **Agents run**: {list — append ` (♻️ resumed from checkpoint)` to each axis that was not re-spawned}
+
+♻️ Resumed from checkpoint: {axes} — same HEAD, same diff, same personas; not re-run this session. {omit this line entirely when nothing resumed}
 
 ## Automated Gate Results
 
@@ -177,4 +179,5 @@ The **Provenance** column is mandatory for the three runnable gates and must sho
 - **Quota overflow is surfaced, not silent**: when a per-agent quota or the global SUGGESTED/QUESTION cap truncates a tier, append `+N more <tier> (capped)` to that section instead of dropping silently — the reader must know coverage was capped, not assume the tier was empty.
 - **Unverified findings never merge into a severity tier.** A `unverified` verdict renders only in the 🔬 section with its `needs_observation`, never as 🔴/🟠 and never silently dropped. The Verdict line counts must-fix as 🔴+🟠 only, so unverified items do not block merge — but they must remain visible, because the alternative is stating an unobserved claim as fact or losing a real lead. When the section is non-empty, append `+N unverified` to the Verdict line.
 - **The report's own prose is subject to the citation gate.** The Intent, Summary, and Gate sections are assertions like any finding: they must be traceable to a command you ran or a line you read. The verifier's citation discipline (`verifier.md` step 2) exists because unbacked claims mislead — that reasoning does not stop applying at the section boundary. Do not describe behaviour in the Summary that no finding established.
+- **Resumed axes are named, never implied.** When any axis was reused from a Phase 2 checkpoint instead of re-spawned, mark it in the **Agents run** list and add exactly one line under the Summary: `♻️ Resumed from checkpoint: <axes> — same HEAD, same diff, same personas; not re-run this session.` One line, whatever the count. The findings are as valid as a fresh pass (the key guarantees identical input), but the reader is entitled to know which conclusions were reached in this session — the same reason a gate row carries provenance. Omit the line entirely when nothing resumed.
 - **Machine-readable tally**: the report's final line is an HTML comment `<!-- review-all-severity: {"critical":…,"important":…,"debt":…,"suggested":…,"question":…} -->` so CI and scripts can parse per-tier counts (e.g. with `jq`) and gate on them.

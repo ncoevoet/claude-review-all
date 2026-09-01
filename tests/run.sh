@@ -41,6 +41,14 @@ echo "== gate-results + corroboration gate =="
 bash "$HERE/check-gate-results.sh" || rc=1
 
 echo
+echo "== per-axis model pinning gate =="
+bash "$HERE/check-agent-models.sh" || rc=1
+
+echo
+echo "== phase-2 checkpoint invariants gate =="
+bash "$HERE/check-checkpoint.sh" || rc=1
+
+echo
 echo "== eval schema validation =="
 python3 "$HERE/../skills/review-all/scripts/validate-evals.py" || rc=1
 

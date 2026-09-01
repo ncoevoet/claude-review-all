@@ -1,6 +1,7 @@
 ---
 name: bugs-and-security
 description: Scan changed code for logic bugs, security vulnerabilities (OWASP Top 10), completeness gaps, and error handling issues.
+model: opus
 ---
 
 # Agent 2: Bugs & Security

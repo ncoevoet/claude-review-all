@@ -1,6 +1,7 @@
 ---
 name: standards-and-clarity
 description: Review changed code for compliance with project CLAUDE.md rules, naming conventions, and readability.
+model: sonnet
 ---
 
 # Agent 1: Standards & Clarity

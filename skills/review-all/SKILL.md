@@ -152,7 +152,8 @@ If `.claude/review-all.json` exists, read it. Schema (jsonc — written as plain
   "quotaSuggested": 3,
   "quotaQuestion": 2,
   "gateSeverityFloor": "critical",
-  "gateVerdictFile": ".claude/review-all/gate-verdict.json"
+  "gateVerdictFile": ".claude/review-all/gate-verdict.json",
+  "checkpointDir": ".claude/review-all/checkpoints"
 }
 ```
 All keys optional — use defaults if missing. The authoritative per-key table, with the rationale behind every default, lives in `references/config-keys.md`; this block must list exactly the same key set.
@@ -333,6 +334,33 @@ Read `references/phase-2-agents.md` (sibling of this file) for diff-slice mappin
 - `agents/09-api-contract.md` — API & Contract (conditional)
 - `agents/10-a11y-i18n.md` — A11y & i18n (conditional)
 
+**Spawn contract — every spawn names its model and its type.** Spawn each agent as a **fresh** subagent (`subagent_type: general-purpose`; never a context-inheriting type such as `fork` — the persona plus the blocks below must be the agent's ONLY framing, and an inheriting spawn re-pays this orchestrator's whole context) and pass an **explicit `model`**. Never spawn without one: an omitted `model` silently inherits the parent session's tier, which pins mechanical axes to the same expensive tier as the bug hunters.
+
+The tier is declared per axis in the persona's own frontmatter `model:` field (`agents/<id>.md`) — read it when you read the persona and pass it verbatim. An agent whose persona declares no `model` (e.g. one added via `extraAgents`) spawns at `sonnet`. Full table and rationale in `references/phase-2-agents.md` → **Model per axis**; the split is `opus` for axes whose findings are behavioral claims (bugs, security deep dive, API contract, performance) and `sonnet` for axes that match code against a known shape (standards, DRY, consistency, simplification, test quality, a11y/i18n). Verifiers are unchanged — they already spawn with an explicit model, the `verifierModel` config tier (default `haiku`), and that includes the Step 2.5b-vote adversarial passes.
+
+**Checkpoint resume — never re-run an axis that already finished.** Once the spawn set is final (spawn conditions + `extraAgents`/`skipAgents`), ask the checkpoint store what is already done:
+
+```bash
+git diff <resolved range> -- <filtered file list> | python3 scripts/checkpoint.py load --head "$(git rev-parse HEAD)" --dir <checkpointDir>
+```
+
+**Pipe the resolved, FILTERED diff** — the exact bytes the agents will review, after `--paths`/`--exclude` and the multi-workspace scope prompt (Step 0.1). Never the raw range: two runs over the same range under different `--paths` must not share a key. For a `PR #N` target, pipe `gh pr diff N` through the same filter. Pipe it — never inline the diff text in the command. Output: `{"runKey", "checkpointDir", "resumed": {"<axis>": {"savedAt", "findings"}}, "ignored": [...]}`. For every axis in `resumed`, do **NOT** spawn it — take its `findings` as that agent's return, and mark it resumed for the Phase 3 report. Spawn the remaining axes normally. `ignored` lists checkpoints written under a different key; `load` has already deleted them, so they need no mention.
+
+The key covers HEAD, the exact diff bytes, the agent personas + `SKILL.md`, and `REVIEW.md`/`.claude/review-all.json` — change any of them and every checkpoint is stale, so a resumed axis is provably the same review rather than a similar one. There is no partial match. To force a full re-run, delete the checkpoint directory.
+
+**Checkpoint on return.** As each agent returns (Phase 2, before dedupe), persist it:
+
+```bash
+echo "$AGENT_FINDINGS_JSON" | python3 scripts/checkpoint.py save \
+  --run-key "<runKey from load>" --axis "<agent id, e.g. 02-bugs-security>" --head "$HEAD_SHA" --dir <checkpointDir>
+```
+
+- Save only a **complete, well-formed** return. An agent that timed out, errored, returned malformed output, or — when chunked — has any chunk missing is NOT checkpointed: a partial axis must re-run, never resume. Checkpoint a chunked agent once, after merging all its chunks.
+- An empty findings array is a legitimate result — save `[]`. Re-running an axis that correctly found nothing is exactly the waste this exists to stop.
+- Save findings **as returned** — pre-dedupe, pre-verification. This store is independent of `state.json` (which tracks per-finding lifecycle across *different* diffs) and the two must stay so.
+- Writes are atomic, one file per axis, so a run killed mid-write leaves the previous file intact.
+- `python3` missing (Phase 0.0) → checkpointing self-skips: spawn every axis as before. It is an optimization, never a correctness dependency.
+
 For each agent you spawn: pass its persona + `_shared.md` (concatenated) + the diff slice as the prompt. Wrap each part in XML tags so the agent parses the prompt unambiguously (Anthropic prompt-structuring best practice for prompts that mix instructions with variable inputs). **Canonical block order** — same in every agent prompt and in the Phase 2.5 verifier prompt, blocks marked `?` omitted when empty or absent:
 
 ```
@@ -381,7 +409,7 @@ When `verifierVotes > 1` (config, default `1`), 🔴/🟠 survivors get majority
 
 Before entering Phase 3, the orchestrator MUST verify:
 
-1. **Every spawned agent returned.** Compare the actual return set against the planned spawn list from Phase 2 (after applying `extraAgents`/`skipAgents`). If any agent is missing or its result is empty due to timeout/error → re-spawn that one agent once.
+1. **Every spawned agent returned.** Compare the actual return set against the planned spawn list from Phase 2 (after applying `extraAgents`/`skipAgents`). If any agent is missing or its result is empty due to timeout/error → re-spawn that one agent once. An axis **resumed from checkpoint** counts as returned — its findings are in hand — and is never re-spawned by this gate; conversely an axis that fails here is never checkpointed, so the next run re-runs it.
 2. **Every verifier returned valid JSON.** Each verifier output must parse and contain, per finding: `finding_id`, `root_cause_key`, `score` (0–100), `verdict` (`keep`/`appendix`/`drop`/`unverified`), `claim_class` (`static`/`runtime`/`data`/`rendering`), `reason`, `reread_evidence` — plus a non-null `needs_observation` whenever the verdict is `unverified`. Malformed output → re-spawn the verifier once with explicit "your previous output failed schema validation: <reason>" preamble. Note: retry re-verifies the **entire batch** (same input set) — this is the documented token cost of a malformed verifier response; do not attempt partial salvage.
 3. **Every gate has a terminal state.** Typecheck/Lint/Tests/Spec Existence/Dependencies must each be one of `PASS|FAIL|SKIP|TIMEOUT|N/A`. No `running`, no missing entries.
 
@@ -428,6 +456,7 @@ The lines below are the **canonical templates**. If you have all the data they n
 
 - After Phase 0 ends: `Phase 0: profile built, <N> files in target, rules cache <HIT|MISS(reason)> (elapsed <S>s)`
 - After Phase 1 ends: `Phase 1: typecheck=<R>, lint=<R>, tests=<R>, runtime=<R> (elapsed <S>s)`
+- When Phase 2 starts and ≥1 axis was resumed: `Phase 2: <R> axes resumed from checkpoint (<list>), <N> spawned` — emit once, omit the line entirely when nothing resumed.
 - During Phase 2, when each agent returns: `Phase 2: <K>/<N> agents returned (elapsed <S>s)` — one line per return is OK; do not also narrate each agent's finding count.
 - After Phase 2.75 completion gate: `Phase 2.75: <K> agents verified, <M> findings kept, <X> appendix, <U> unverified, <Y> dropped (elapsed <S>s)`
 - After Phase 3 ends: `Phase 3: report assembled — <C> critical, <I> important, <D> debt, <S> suggested, <Q> questions`
@@ -475,3 +504,4 @@ User says: "pre-commit check on my staged files"
 - **Report printed, turn ended, no menu** → premature-completion stop (the #1 Phase 4 failure mode). The mandatory menu gate requires the Phase 4 menu in the SAME turn as the report unless every section is "None found." with no appendix — re-present it.
 - **Stale rules after a branch switch** → the cache key (computed by `discover.sh`) hashes CLAUDE.md file contents, not mtimes (`git checkout` does not bump mtimes), so a branch switch changes the key → MISS → fresh extraction. Toolchain commands and tool availability are never cached at all — re-probed every run. Legacy `claudeMdHash`-era cache files auto-MISS on the schema check.
 - **Resolved range is huge** (≥20 commits or ≥200 files on the empty-args default) → the large-range scope prompt offers narrower options; skip it only when an explicit argument already declared intent.
+- **A re-run re-spawns every axis instead of resuming** → the checkpoint key changed. It covers HEAD, the exact diff bytes, the personas + `SKILL.md`, and `REVIEW.md`/`.claude/review-all.json`, so any edit to the working tree or to the skill invalidates all axes by design. `load`'s `ignored` array names the reason per axis (`key-mismatch`, `schema`, `unreadable`, `axis-mismatch`).

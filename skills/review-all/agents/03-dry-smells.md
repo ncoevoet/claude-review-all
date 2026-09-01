@@ -1,6 +1,7 @@
 ---
 name: dry-and-code-smells
 description: Detect code duplication, DRY violations, and classic code smells (shotgun surgery, long methods, feature envy, data clumps) in changed and related files.
+model: sonnet
 ---
 
 # Agent 3: DRY & Code Smells
