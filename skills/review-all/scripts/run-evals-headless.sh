@@ -17,6 +17,12 @@
 #                             (the model reports fewer of the bugs it actually found),
 #                             so a run at --effort low understates the skill. The skill
 #                             pins `effort: high` in its frontmatter as a floor anyway.
+#   REVIEW_ALL_EVAL_MODEL=M   pass --model M to BOTH claude -p calls (the review
+#                             and the LLM judge). LEAVE UNSET and each call runs at
+#                             whatever tier the CLI happens to default to, so any
+#                             A/B measures the change PLUS an unrecorded ambient
+#                             tier and can attribute neither. Set it on every run
+#                             whose numbers will be compared against another run.
 #   REVIEW_ALL_CONFIG_JSON=…  JSON written as .claude/review-all.json into each
 #                             materialized fixture (after staging, so untracked).
 #                             Use to A/B config-driven features, e.g.
@@ -67,12 +73,20 @@ print(",".join(str(x) for x in v + [sum(v)]))
 
 eff=()
 [[ -n "${REVIEW_ALL_EVAL_EFFORT:-}" ]] && eff=(--effort "$REVIEW_ALL_EVAL_EFFORT")
+mdl=()
+[[ -n "${REVIEW_ALL_EVAL_MODEL:-}" ]] && mdl=(--model "$REVIEW_ALL_EVAL_MODEL")
 runs=${REVIEW_ALL_EVAL_RUNS:-1}
 # Bound each claude -p call so a hung review/grade can't stall the whole suite.
 # timeout is optional (GNU coreutils; absent on bare macOS) — uncapped if missing.
 to=(); command -v timeout >/dev/null 2>&1 && to=(timeout "${REVIEW_ALL_EVAL_TIMEOUT:-420}")
 
-review_once() { ( cd "$1" && "${to[@]}" claude -p "$2" --dangerously-skip-permissions "${eff[@]}" 2>/dev/null ); }
+review_once() { ( cd "$1" && "${to[@]}" claude -p "$2" --dangerously-skip-permissions "${eff[@]}" "${mdl[@]}" 2>/dev/null ); }
+
+# Provenance header: the tier a number was produced at has to travel WITH the
+# number. An unlabelled results file is indistinguishable from one measured at a
+# different default, which is exactly how a tier decision ends up resting on a
+# run nobody can reproduce.
+echo "CONFIG,model=${REVIEW_ALL_EVAL_MODEL:-<cli-default:UNPINNED>},effort=${REVIEW_ALL_EVAL_EFFORT:-<skill-floor:high>},runs=${REVIEW_ALL_EVAL_RUNS:-1},timeout=${REVIEW_ALL_EVAL_TIMEOUT:-420},config_json=${REVIEW_ALL_CONFIG_JSON:-<none>}"
 
 pass=0; fail=0; err=0
 for f in "$EVALS"/*.json; do
@@ -103,7 +117,7 @@ for f in "$EVALS"/*.json; do
     graded=$((graded+1))
     sc=$(sev_line "$report") && [[ -n "$sc" ]] && echo "SCORE,$id,$sc"
     judge=$(printf 'You are grading a code-review report against a rubric. Reason briefly, then on the LAST line output exactly PASS or FAIL.\n\n<rubric>\n%s\n</rubric>\n\n<report>\n%s\n</report>\n' \
-        "$rb" "$report" | "${to[@]}" claude -p --dangerously-skip-permissions 2>/dev/null)
+        "$rb" "$report" | "${to[@]}" claude -p --dangerously-skip-permissions "${mdl[@]}" 2>/dev/null)
     if echo "$judge" | grep -qiE '\bPASS\b' && ! echo "$judge" | tail -1 | grep -qiE '\bFAIL\b'; then
       cp=$((cp+1))
     fi
@@ -119,5 +133,12 @@ for f in "$EVALS"/*.json; do
   fi
 done
 
-echo "headless evals: $pass passed, $fail failed, $err errored (runs/case=$runs)"
+echo "headless evals: $pass passed, $fail failed, $err errored (runs/case=$runs, model=${REVIEW_ALL_EVAL_MODEL:-<cli-default:UNPINNED>})"
+# A filter that matches nothing graded zero cases and must not look like a green
+# suite — an all-zero summary is otherwise indistinguishable from a clean run,
+# and a mistyped filter would silently burn an A/B arm on no cases at all.
+if [[ $((pass + fail + err)) -eq 0 ]]; then
+  echo "run-evals-headless: NO CASES ran${filter:+ (filter \"$filter\" matched nothing)} — not a pass." >&2
+  exit 3
+fi
 [[ $fail -eq 0 && $err -eq 0 ]]
