@@ -115,7 +115,16 @@ for f in "$EVALS"/*.json; do
     bad_report "$report" && report=$(review_once "$repo" "$prompt")   # one retry
     if bad_report "$report"; then rm -rf "$repo"; continue; fi
     graded=$((graded+1))
-    sc=$(sev_line "$report") && [[ -n "$sc" ]] && echo "SCORE,$id,$sc"
+    # A missing tally is reported, never silently skipped: the per-tier counts are
+    # the only CONTINUOUS signal an A/B has (pass-rates at N=3 sit inside this
+    # suite's noise floor), so losing them quietly costs the whole comparison and
+    # the loss is invisible until someone asks why there are no SCORE lines.
+    if sc=$(sev_line "$report") && [[ -n "$sc" ]]; then
+      echo "SCORE,$id,$sc"
+    else
+      echo "SCORE,$id,MISSING"
+      echo "run-evals-headless: $id — report carried no <!-- review-all-severity --> tally; per-tier counts unavailable for this run." >&2
+    fi
     judge=$(printf 'You are grading a code-review report against a rubric. Reason briefly, then on the LAST line output exactly PASS or FAIL.\n\n<rubric>\n%s\n</rubric>\n\n<report>\n%s\n</report>\n' \
         "$rb" "$report" | "${to[@]}" claude -p --dangerously-skip-permissions "${mdl[@]}" 2>/dev/null)
     if echo "$judge" | grep -qiE '\bPASS\b' && ! echo "$judge" | tail -1 | grep -qiE '\bFAIL\b'; then

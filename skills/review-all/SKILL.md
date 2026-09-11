@@ -426,7 +426,11 @@ Per-agent timeout default: `600s`. Per-verifier timeout default: `300s`. Configu
 
 Detailed report template, intent summary rules, numbering, section rules live in **`references/phase-3-report.md`** (sibling of this file). Read it when assembling the report.
 
-Required sections (in order): **Verdict line** (must-fix count, or ✅ none), Intent, Summary, Automated Gate Results, Critical, Important, Debt, Suggested, Questions, Dependency Changes (if any), Potential Issues (Appendix), **Scope footer** (files reviewed / skipped). Critical & Important findings get full anatomy (failure-mode title + `[severity · confidence]` tag, one-sentence Impact, suggested Fix, ≤8-line Evidence); Debt/Suggested/Questions get one line each. Risk Level: High if any 🔴, Medium if 🟠/🟡, Low otherwise.
+Required sections (in order): **Verdict line** (must-fix count, or ✅ none), Intent, Summary, Automated Gate Results, Critical, Important, Debt, Suggested, Questions, Dependency Changes (if any), Potential Issues (Appendix), **Scope footer** (files reviewed / skipped), **machine-readable tally**. Critical & Important findings get full anatomy (failure-mode title + `[severity · confidence]` tag, one-sentence Impact, suggested Fix, ≤8-line Evidence); Debt/Suggested/Questions get one line each. Risk Level: High if any 🔴, Medium if 🟠/🟡, Low otherwise.
+
+**The report's last emitted line is the machine-readable tally** — `<!-- review-all-severity: {"critical":C,"important":I,"debt":D,"suggested":S,"question":Q} -->` — and it is emitted on EVERY run, including one where every count is zero. CI and the eval harness parse it; a run that omits it is unreadable to them even though a human sees the same numbers in the Verdict line. Emit it as the comment, not as prose: a sentence carrying the counts does not satisfy this, and neither does the Phase 3 heartbeat below.
+
+**Nothing follows it in the report text.** No sign-off, no commentary on the run, no note about what you skipped or how the review went. The next thing that happens is the Phase 4 menu *tool call* (see below) — in a non-interactive run where no menu is presented, the tally comment is simply the final line of the output.
 
 ---
 
@@ -459,7 +463,7 @@ The lines below are the **canonical templates**. If you have all the data they n
 - When Phase 2 starts and ≥1 axis was resumed: `Phase 2: <R> axes resumed from checkpoint (<list>), <N> spawned` — emit once, omit the line entirely when nothing resumed.
 - During Phase 2, when each agent returns: `Phase 2: <K>/<N> agents returned (elapsed <S>s)` — one line per return is OK; do not also narrate each agent's finding count.
 - After Phase 2.75 completion gate: `Phase 2.75: <K> agents verified, <M> findings kept, <X> appendix, <U> unverified, <Y> dropped (elapsed <S>s)`
-- After Phase 3 ends: `Phase 3: report assembled — <C> critical, <I> important, <D> debt, <S> suggested, <Q> questions`
+- After Phase 3 ends: `Phase 3: report assembled — <C> critical, <I> important, <D> debt, <S> suggested, <Q> questions` — a progress signal only. It does **not** discharge the machine-readable tally the report itself must end with (Phase 3 above); emitting the counts here and omitting the comment there leaves the report unparseable.
 
 In addition, if ANY single Phase 2 agent exceeds 120s, emit ONCE:
 `Long-running agent: <agent-id> (still working, budget <agentTimeoutSeconds>s)`

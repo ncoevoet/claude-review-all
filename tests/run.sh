@@ -49,6 +49,10 @@ echo "== phase-2 checkpoint invariants gate =="
 bash "$HERE/check-checkpoint.sh" || rc=1
 
 echo
+echo "== severity tally gate =="
+bash "$HERE/check-severity-tally.sh" || rc=1
+
+echo
 echo "== eval schema validation =="
 python3 "$HERE/../skills/review-all/scripts/validate-evals.py" || rc=1
 
