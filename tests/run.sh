@@ -41,7 +41,7 @@ echo "== gate-results + corroboration gate =="
 bash "$HERE/check-gate-results.sh" || rc=1
 
 echo
-echo "== per-axis model pinning gate =="
+echo "== model pinning gate (axes + phase 4 + verifier) =="
 bash "$HERE/check-agent-models.sh" || rc=1
 
 echo

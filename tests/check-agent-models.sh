@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
-# check-agent-models.sh — release gate: every Phase 2 axis declares an explicit model.
+# check-agent-models.sh — release gate: every spawn in the skill declares an
+# explicit model — the Phase 2 axes, the Phase 4 follow-up agents, and the verifier.
 #
 # A spawn with no `model` does not fail — it silently inherits the session tier,
 # which is exactly how ten axes ended up on the same expensive model, mechanical
 # ones included. Nothing at runtime can detect that, so the invariant has to be
-# pinned here. Two halves:
+# pinned here. Three halves:
 #   1. MECHANICAL set diff — each agents/NN-*.md frontmatter `model:` must equal
 #      the tier the phase-2-agents.md table gives that persona. A per-file grep
 #      list would drift the way the config-key lists once did; a set diff cannot.
 #   2. Prose invariants — the never-spawn-without-a-model rule and the default
 #      for an extraAgents persona live only in docs.
+#   3. The spawn sites half 1 cannot see. The three Phase 4 agents (Deep-dive,
+#      Ask-a-question, test generator) have no persona file, and the verifier has
+#      one but deliberately no `model:` frontmatter (one persona, config-driven
+#      tier). Both shipped unpinned once because nothing checked them: an Agent
+#      spawn carrying no model — or `inherit`, which is not a model id — is
+#      refused outright by a harness that validates the model on a spawn.
 # Exit 0 = clean, 1 = a declaration or invariant is missing/divergent, 2 = misconfig.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -19,8 +26,10 @@ AGENTS_DOC="$ROOT/skills/review-all/references/phase-2-agents.md"
 KEYS="$ROOT/skills/review-all/references/config-keys.md"
 AGENTS_DIR="$ROOT/skills/review-all/agents"
 README="$ROOT/README.md"
+MENU="$ROOT/skills/review-all/references/phase-4-menu.md"
+VERIFIER="$ROOT/skills/review-all/agents/verifier.md"
 
-for f in "$SKILL" "$AGENTS_DOC" "$KEYS" "$README"; do
+for f in "$SKILL" "$AGENTS_DOC" "$KEYS" "$README" "$MENU" "$VERIFIER"; do
   [[ -f "$f" ]] || { echo "check-agent-models: missing file $f" >&2; exit 2; }
 done
 [[ -d "$AGENTS_DIR" ]] || { echo "check-agent-models: missing dir $AGENTS_DIR" >&2; exit 2; }
@@ -81,8 +90,44 @@ need "$AGENTS_DOC" 'spawns at .?sonnet' "phase-2-agents.md gives the extraAgents
 need "$KEYS" 'persona frontmatter' "config-keys.md points verifierModel readers at the per-axis tiers"
 need "$README" 'Every spawn names its model' "README documents the per-axis model split"
 
+# --- half 3: the spawn sites with no persona frontmatter ---
+# Phase 4: every "Spawn ... agent" line must carry a `model: <tier>`.
+p4_spawns="$(grep -cE 'Spawn [A-Za-z ]+agent' "$MENU" || true)"
+p4_pinned="$(grep -cE 'Spawn .*`model: (haiku|sonnet|opus)`' "$MENU" || true)"
+if [[ "$p4_spawns" -ne "$p4_pinned" || "$p4_pinned" -lt 3 ]]; then
+  echo "check-agent-models: phase-4-menu.md has $p4_spawns spawn site(s) but $p4_pinned pinned (expected equal, >=3):" >&2
+  grep -nE 'Spawn [A-Za-z ]+agent' "$MENU" \
+    | grep -vE 'Spawn .*`model: (haiku|sonnet|opus)`' | sed 's/^/  - /' >&2
+  rc=1
+fi
+if grep -qiE 'inherits the session tier' "$MENU"; then
+  echo "check-agent-models: phase-4-menu.md still lets a spawn inherit the session tier" >&2
+  rc=1
+fi
+
+# verifierModel: an explicit tier only. `inherit` is not a model id, so a spawn
+# carrying it is refused; the row must offer haiku|sonnet|opus and nothing else.
+vm_row="$(grep -E '^\| *`verifierModel` *\|' "$KEYS" || true)"
+if [[ -z "$vm_row" ]]; then
+  echo "check-agent-models: no verifierModel row found in config-keys.md" >&2
+  rc=1
+else
+  for tier in haiku sonnet opus; do
+    grep -q "\"$tier\"" <<<"$vm_row" || {
+      echo "check-agent-models: verifierModel row does not offer \"$tier\"" >&2; rc=1; }
+  done
+  if grep -qE '(Choices|choices)[^|]*inherit' <<<"$vm_row"; then
+    echo "check-agent-models: verifierModel still offers \"inherit\" — not a model id, rejected on spawn" >&2
+    rc=1
+  fi
+fi
+need "$KEYS" 'no .?.?inherit.?.? value' "config-keys.md records why verifierModel has no inherit"
+need "$VERIFIER" 'verifierModel' "verifier.md names the config tier it spawns at"
+need "$MENU" 'Every Phase 4 spawn names its model' "phase-4-menu.md states the Phase 4 spawn contract"
+need "$SKILL" 'Phase 4 spawn' "SKILL.md extends the spawn contract to Phase 4"
+
 if [[ $rc -eq 0 ]]; then
-  echo "check-agent-models: CLEAN ($(echo "$frontmatter" | wc -l | tr -d ' ') axes pinned)"
+  echo "check-agent-models: CLEAN ($(echo "$frontmatter" | wc -l | tr -d ' ') axes + $p4_pinned phase-4 spawns + verifier pinned)"
 else
   echo "check-agent-models: FAIL — see above." >&2
 fi
