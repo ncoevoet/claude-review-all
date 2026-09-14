@@ -126,3 +126,42 @@ The orchestrator resolves codegraph MCP tool names at runtime (see SKILL.md Step
 - `${codegraphTools.search}` — find symbols by name
 
 The orchestrator substitutes each `${codegraphTools.X}` placeholder with the host-qualified tool name (e.g. `codegraph:codegraph_callers` or `mcp__codegraph__codegraph_callers`) before spawning you. If `codegraphTools` is empty, those tools are unavailable for this run — fall back to `Grep` / `git grep` and do not abort the review. This matters most for the DRY, Bugs, Security, and API/Contract agents.
+
+## Exploration budget
+
+**The diff in your prompt is the subject of the review. The tree is context you consult, not
+territory you survey.** You already have the diff, the changed-file list and the project profile —
+never spend a call re-deriving any of them.
+
+Reach for tools in this order, and stop at the first one that answers:
+
+1. **The prompt.** The `<diff>` block is complete. Re-reading a changed file to see what changed
+   is a wasted call.
+2. **CodeGraph** for every *structural* question — who calls this, what breaks if it changes,
+   where is this defined, what is its signature. One call returns verbatim source **plus** callers
+   **plus** blast radius. It is a pre-built AST index: a grep-then-read loop recomputes what it
+   already holds and costs several times more for a worse answer. Trust its results; do not
+   re-verify them with grep.
+3. **`Read`** when you need a specific file you can already name. Prefer an `offset`/`limit`
+   window over the whole file.
+4. **`Grep`** only for *literal text* — a string, a comment, a log message — which is the one
+   question an AST index cannot answer.
+
+**`Bash` is for running things, not for reading them.** `cd … && grep -r`, `sed -n '1,200p'`,
+`cat`, and `find` over the tree are the anti-pattern: they do the index's job by hand, and every
+byte they print is re-read on each of your later turns.
+
+> This is measured, not stylistic. Across 78 review subagents on one project the tool mix was
+> **1,813 Bash / 238 Read / 10 CodeGraph / 1 Grep** — the Bash verbs being `cd` 815, `grep` 419,
+> `sed` 289, `cat` 177, `find` 79. Those agents averaged **44 API requests each** (the worst hit
+> 105) and the run cost **74 M cache-read tokens for one diff**. The findings did not improve with
+> the hunting; the context just got more expensive to carry.
+
+**Budget: ~15 tool calls.** That is enough to review a normal diff properly. Passing 25 means you
+have started surveying the repository instead of reviewing the change — stop, and write up what
+the diff and the index already told you. Running out of budget is not a reason to lower your bar:
+report fewer, better-evidenced findings rather than padding with things you could not verify.
+
+The one carve-out is the evidence discipline in **Claim classes** above: when a claim needs a
+runtime, data or rendering proof, gathering that proof is never "over budget". Budget constrains
+*searching*, never *verifying*.
