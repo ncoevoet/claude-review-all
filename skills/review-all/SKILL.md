@@ -361,6 +361,17 @@ echo "$AGENT_FINDINGS_JSON" | python3 scripts/checkpoint.py save \
 - Writes are atomic, one file per axis, so a run killed mid-write leaves the previous file intact.
 - `python3` missing (Phase 0.0) → checkpointing self-skips: spawn every axis as before. It is an optimization, never a correctness dependency.
 
+**Load each persona once, with `Read`, and reuse the text.** `_shared.md` is read once per run and
+reused for every spawn; each `agents/<id>.md` is read once for the agent it describes. Never shell
+out to `cat`/`sed` to collect them, and never re-read one you already hold — the text does not
+change during a run, and whatever you pull in stays resident in *your* context and is re-billed on
+every remaining turn of the session, on top of the copy each agent gets.
+
+> Measured on one project: **91 orchestrator Bash calls against `review-all` paths, 418 K chars
+> (~116 K tokens)**, including the same `cat` of a persona bundle repeated **13×** at 8.6 K chars
+> and another **10×** at 10.5 K. Four of the twenty most expensive Bash results in the whole
+> corpus were these. Re-reading a persona is pure loss: it buys nothing and is charged twice.
+
 For each agent you spawn: pass its persona + `_shared.md` (concatenated) + the diff slice as the prompt. Wrap each part in XML tags so the agent parses the prompt unambiguously (Anthropic prompt-structuring best practice for prompts that mix instructions with variable inputs). **Canonical block order** — same in every agent prompt and in the Phase 2.5 verifier prompt, blocks marked `?` omitted when empty or absent:
 
 ```
@@ -394,6 +405,20 @@ Detailed dedup rules, batch verification, threshold table, history persistence l
 Two-step flow:
 1. **Dedupe** by `root_cause_key` (cheap; before verify) — apply global caps for SUGGESTED/QUESTION.
 2. **Batch verify** — one verifier agent per source agent, in parallel.
+
+**Spawn contract — state the model here, at the spawn site.** Every verifier spawns
+`subagent_type: general-purpose` with an explicit `model` read from the `verifierModel` config key
+(`.claude/review-all.json`; **default `haiku`** when the file or the key is absent — see
+`references/config-keys.md`). The same tier binds the Step 2.5b-vote passes. Verification is a
+constrained re-read against a JSON schema, not open-ended reasoning: haiku is the right tool, and
+promoting it is a deliberate config change (`verifierModel: "sonnet"`), never a default.
+
+> Do not treat "the tier is stated in the reference" as sufficient. It was — in four reference
+> files — and verifiers still ran one to two tiers above it. Measured over 78 subagents of one
+> project: **19 verifiers spawned, 12 at `sonnet` and 7 at `opus`, none at `haiku`, 45.9 M
+> cache-read tokens**, with no `review-all.json` anywhere that would have overridden the default.
+> Phase 2's models were honoured over the same runs because Phase 2 names its contract at its own
+> spawn site. A rule that lives only where the orchestrator is not reading is not in force.
 
 Threshold (full table in the reference): score ≥ 75 → main report; 50–74 → appendix; < 50 → drop. VERIFIED gate findings auto-keep at 90 — but only when the Phase 1 gate row carries provenance for a command run this session.
 
