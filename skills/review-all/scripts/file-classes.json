@@ -1,0 +1,243 @@
+{
+  "exclude": [
+    "**/package-lock.json",
+    "**/yarn.lock",
+    "**/pnpm-lock.yaml",
+    "**/Cargo.lock",
+    "**/poetry.lock",
+    "**/go.sum",
+    "**/*.min.*",
+    "**/dist/**",
+    "**/build/**",
+    "**/vendor/**",
+    "**/node_modules/**",
+    "**/*.pb.go",
+    "**/*_pb2.py",
+    "**/*.generated.*",
+    "**/__snapshots__/**",
+    "**/*.snap"
+  ],
+  "secret": [
+    "**/.env",
+    "**/.env.*",
+    "**/id_rsa*",
+    "**/id_dsa*",
+    "**/.npmrc",
+    "**/credentials",
+    "**/credentials.*",
+    "**/*.pem",
+    "**/*.p12"
+  ],
+  "classes": {
+    "**/*.{ts,tsx,js,jsx,mjs,cjs}": [
+      "code"
+    ],
+    "**/*.{tsx,jsx}": [
+      "ui"
+    ],
+    "**/*.java": [
+      "code"
+    ],
+    "**/*.py": [
+      "code"
+    ],
+    "**/*.go": [
+      "code"
+    ],
+    "**/*.rs": [
+      "code"
+    ],
+    "**/*.sql": [
+      "code"
+    ],
+    "**/*.{md,mdx}": [
+      "docs"
+    ],
+    "**/*.json": [
+      "data"
+    ],
+    "**/*.{html,vue,svelte}": [
+      "code",
+      "ui"
+    ],
+    "**/*.{css,scss}": [
+      "ui"
+    ],
+    "**/*.{yaml,yml}": [
+      "data"
+    ],
+    "**/*.sh": [
+      "code"
+    ],
+    "**/*.{test,spec}.{ts,tsx,js,jsx}": [
+      "test"
+    ],
+    "**/*Test.java": [
+      "test"
+    ],
+    "**/*Tests.java": [
+      "test"
+    ],
+    "**/*_test.go": [
+      "test"
+    ],
+    "**/*_test.py": [
+      "test"
+    ],
+    "**/test_*.py": [
+      "test"
+    ],
+    "**/*_test.rs": [
+      "test"
+    ],
+    "**/__tests__/**": [
+      "test"
+    ],
+    "**/tests/**": [
+      "test"
+    ],
+    "**/messages*.{json,xlf,properties}": [
+      "i18n"
+    ],
+    "**/i18n/**": [
+      "i18n"
+    ],
+    "**/locales/**": [
+      "i18n"
+    ],
+    "**/{en,fr,de,es,zh}.json": [
+      "i18n"
+    ],
+    "**/migrations/**": [
+      "contract"
+    ],
+    "**/*.proto": [
+      "contract"
+    ],
+    "**/*.graphql": [
+      "contract"
+    ],
+    "**/*.gql": [
+      "contract"
+    ],
+    "**/openapi*.{yaml,yml,json}": [
+      "contract"
+    ],
+    "**/schema*.{sql,json}": [
+      "contract"
+    ],
+    "**/api/**": [
+      "contract"
+    ],
+    "**/routes/**": [
+      "contract"
+    ],
+    "**/controllers/**": [
+      "contract"
+    ],
+    "**/handlers/**": [
+      "contract"
+    ],
+    "**/endpoints/**": [
+      "contract"
+    ],
+    "**/*auth*/**": [
+      "security"
+    ],
+    "**/*login*/**": [
+      "security"
+    ],
+    "**/*session*/**": [
+      "security"
+    ],
+    "**/*token*/**": [
+      "security"
+    ],
+    "**/*crypto*/**": [
+      "security"
+    ],
+    "**/*jwt*/**": [
+      "security"
+    ],
+    "**/*permission*/**": [
+      "security"
+    ],
+    "**/*guard*/**": [
+      "security"
+    ],
+    "**/*middleware*/**": [
+      "security"
+    ],
+    "**/*auth*": [
+      "security"
+    ],
+    "**/*login*": [
+      "security"
+    ],
+    "**/*session*": [
+      "security"
+    ],
+    "**/*token*": [
+      "security"
+    ],
+    "**/*crypto*": [
+      "security"
+    ],
+    "**/*jwt*": [
+      "security"
+    ],
+    "**/*permission*": [
+      "security"
+    ],
+    "**/*guard*": [
+      "security"
+    ],
+    "**/*middleware*": [
+      "security"
+    ],
+    "**/Dockerfile*": [
+      "security"
+    ],
+    "**/docker-compose*.{yml,yaml}": [
+      "security"
+    ],
+    ".github/workflows/**": [
+      "security"
+    ]
+  },
+  "content_signals": {
+    "security": [
+      "\\.(?:innerHTML|outerHTML)\\s*=",
+      "insertAdjacentHTML\\(",
+      "document\\.write\\(",
+      "\\bexecSync\\(",
+      "\\bexecFileSync\\(",
+      "\\bexecFile\\(",
+      "\\bspawnSync\\(",
+      "from [\\\"']child_process[\\\"']",
+      "require\\([\\\"']child_process[\\\"']\\)",
+      "\\breadFileSync\\(\\s*join\\(",
+      "\\bwriteFileSync\\(\\s*join\\(",
+      "(?<!\\.)\\bfetch\\(\\s*\\w+\\s*[,)]",
+      "(?<!\\.)\\brequest\\(\\s*\\w+\\s*,",
+      "axios\\.get\\(\\s*\\w+\\s*\\)",
+      "http\\.get\\(\\s*\\w+\\s*,",
+      "rejectUnauthorized:\\s*false",
+      "NODE_TLS_REJECT_UNAUTHORIZED",
+      "checkServerIdentity\\s*:\\s*\\(\\s*\\)\\s*=>",
+      "/\\[\",\\\\n\\\\r\\]/",
+      "escapeField\\("
+    ]
+  },
+  "rule_packs": {
+    "**/*.{ts,tsx,js,jsx,mjs,cjs}": "ts_js.md",
+    "**/*.java": "java.md",
+    "**/*.{py,pyi}": "python.md",
+    "**/*.go": "go.md",
+    "**/*.rs": "rust.md",
+    "**/*.sql": "sql.md",
+    "**/*.{json,json5}": "json.md",
+    "**/*.{md,mdx}": "markdown.md",
+    "**/*": "default.md"
+  }
+}

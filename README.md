@@ -91,7 +91,7 @@ Examples:
 | 0.5 Project rules | Reads root + nested CLAUDE.md files; the global half is skipped on cache HIT, module-level CLAUDE.md (changed dirs) always read fresh. Also reads repo-root `REVIEW.md` when present (never cached) | "NEVER do X / ALWAYS do Y" steer the agents; `REVIEW.md` overrides what gets flagged and at what severity |
 | 0.6 Test patterns | Folded into 0.0 — `test-pattern-probe.sh` infers location, suffix, framework | Spec Existence Check uses this; no hardcoded `__tests__` assumption |
 | 0.7 CodeGraph + MCP | Probes the live MCP tool registry (skipped entirely when 0.0 found no `.codegraph/`); records `toolchain.codegraphTools` keyed by capability | Tool names are not hardcoded — survives MCP-server renames |
-| 0.8 Gather diff | Computes diff + per-file slice, applies `--paths`/`--exclude`, recent commit log | Filter is enforced before any agent sees the diff |
+| 0.8 Gather diff + select | Computes diff + per-file slice, applies `--paths`/`--exclude`, then runs `scripts/select-files.py` — a pure function that drops binary files, secret paths, generated/vendor/lock output and any single file over `maxFileDiffBytes`, and tags every survivor with its file classes | Filtering is enforced before any agent sees the diff, and it is a computation rather than a judgment — a dry run and the real run consume one answer |
 | 0.9 Output dirs + cache write | Creates `.claude/cache`, `.claude/reports`, `.claude/review-all`; on cache MISS writes the v2 rules profile | First run on a fresh repo never crashes on a missing dir |
 
 The rules cache is keyed on a manifest of per-file content hashes over every repo `CLAUDE.md` (+ root `CLAUDE.local.md`), carries a schema version, and expires after 7 days — a branch switch, a CLAUDE.md edit, or a legacy cache file all force a fresh extraction. The report's gate table shows `Profile cache: HIT / MISS(reason)` so cache behavior is always visible (and eval-gradeable).
@@ -122,11 +122,17 @@ Catches dead routes and visual regressions that static review cannot.
 
 ### Phase 2 — Parallel agents
 
-Ten specialized agents review the (filtered) diff slice in parallel, each on its own concern:
+Up to ten specialized agents review the (filtered) diff slice in parallel, each on its own concern:
 
 `standards · bugs+security · DRY · consistency · simplification · security-deep-dive · performance · test-quality · API-contract · a11y/i18n`
 
 Agents share `_shared.md` (severity tiers, 3-question gate, quotas, auto-drop rules, codegraph-tool resolution).
+
+**Only the agents the diff needs are spawned.** `scripts/select-agents.py` turns Step 0.8's file classes into the spawn set: six axes always run, and security-deep-dive, test-quality, API-contract and a11y/i18n run only when the diff actually holds a file of class `security`, `test`, `contract`, or `ui`/`i18n`. A backend-only Go diff spawns six agents, not ten. Each conditional axis also receives only its own files as its slice. The report names every skipped axis with the reason it was skipped, so an absent agent never reads as a failed one.
+
+This used to be prose inside the personas (`Only spawn this agent if …`), which can only take effect *after* the agent is running — a measured 73 545-character floor of persona text paid to be told there was nothing to review. The persona lines survive as a fallback for a hand-spawned agent; the gate is the script.
+
+**Per-language rule packs.** Each agent also receives a `<language_rules>` block: a short checklist of the defects — and the *false positives* — that the languages in its slice specifically invite (`rules/<lang>.md`). It is injected once per language present, never once per file, so a Java-only diff never pays for the TypeScript pack. Set `languageRules: false` to turn it off. Every pack ends with a mandatory `#### Do not report` section; that negative half is the point, and `tests/check-rule-packs.sh` enforces it.
 
 **Every spawn names its model, per axis.** The axes whose findings are claims about *behavior* — bugs+security, security-deep-dive, performance, API-contract — run on `opus`; the axes that match code against a *known shape* — standards, DRY, consistency, simplification, test-quality, a11y/i18n — run on `sonnet`. The tier is declared in each persona's frontmatter (`model:`), so it travels with the persona; an omitted model would silently inherit the session's tier and put mechanical axes on the expensive one. Precision does not depend on the tier: every finding still faces the hostile verifier, so a weaker axis over-flagging costs a verifier call, not a false positive. The rule is not limited to the axes — the Phase 4 follow-up agents name a tier too (Deep-dive `opus`, Ask-a-question and the test generator `sonnet`), so no spawn in the skill inherits a tier by accident.
 
@@ -251,6 +257,24 @@ Common keys:
 }
 ```
 
+### What gets excluded before any agent runs
+
+Step 0.8 drops files from the review deterministically, before a single agent is spawned. The patterns live in `skills/review-all/scripts/file-classes.json`:
+
+| Reason | What it covers |
+|---|---|
+| `binary` | any file git reports as binary |
+| `secret` | `.env*`, `id_rsa*`, `.npmrc`, `credentials*`, `*.pem`, `*.p12` — checked **ahead of** `--paths`/`--exclude`, so no include can admit a credential |
+| `user_rule` | your own `--exclude` prefixes |
+| `generated` | lockfiles, `dist/`, `build/`, `vendor/`, `node_modules/`, `*.min.*`, `*.pb.go`, `*_pb2.py`, `*.generated.*`, `__snapshots__/`, `*.snap` |
+| `too_large` | a single file whose diff exceeds `maxFileDiffBytes` (default `160000`) |
+
+Three exclusions this skill deliberately does **not** make, against the grain of comparable tools: **test files are classified, never dropped** — they are the whole subject of the test-quality agent; **`.md` is reviewable**, because documentation that contradicts the diff is a finding worth having; and **deleted files stay reviewable**, because a deletion whose consumer is unchanged is a diff made of nothing but the deletion, and dropping it hides the breakage instead of saving tokens. `tests/check-agent-selection.sh` fails the build if a test or Markdown pattern ever gets added to the exclude list.
+
+Every excluded file is counted in the report by reason, and over five of them are listed by path. Nothing is dropped silently.
+
+`maxFileDiffBytes` (default `160000`, `0` disables) and `languageRules` (default `true`) are the two keys that tune this layer.
+
 `verifierVotes` defaults to `1` (single hostile pass). Set it to an odd `N>1` (e.g. `3`) to majority-vote the 🔴/🟠 findings across `N` independent verifier passes — a finding reaches the main report only if ⌈N/2⌉ verifiers keep it. Voting is scoped to top severity (🟡/🔵/⚪ stay single-pass) and adds verifier cost only when 🔴/🟠 survivors exist; see `references/config-keys.md`.
 
 ### Finding-count caps
@@ -297,6 +321,7 @@ claude-review-all/
 │   ├── SKILL.md              # orchestrator entry point
 │   ├── agents/               # 10 persona files + _shared.md + verifier.md
 │   ├── references/           # per-phase rules, config schema, state-file lifecycle
+│   ├── rules/                # per-language rule packs injected as <language_rules>
 │   ├── evals/                # labeled scenarios + success criteria + grader rubrics
 │   └── scripts/              # discover (one-call Phase 0), preflight, detect-toolchain,
 │                             # dev-server-probe, test-pattern-probe, dedupe, state-sweep,
@@ -304,7 +329,9 @@ claude-review-all/
 │                             # materialize-fixture, run-evals, run-evals-headless,
 │                             # eval-scorecard (recall/precision/SNR aggregate),
 │                             # agent-order (per-agent diff permutation),
-│                             # checkpoint (per-axis resume store)
+│                             # checkpoint (per-axis resume store),
+│                             # select-files + select-agents + file-classes.json
+│                             # (deterministic pre-dispatch selection)
 ├── tests/                    # unit tests + check-anonymization.sh (gitignored blocklist)
 │                             # + one check-*.sh doc gate per instruction-only feature
 └── .github/workflows/ci.yml  # shellcheck + test suite (incl. anonymization + eval-schema gates)

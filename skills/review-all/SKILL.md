@@ -141,6 +141,8 @@ If `.claude/review-all.json` exists, read it. Schema (jsonc — written as plain
   "verifierVotes": 1,
   "chunkMaxFiles": 40,
   "chunkMaxBytes": 200000,
+  "maxFileDiffBytes": 160000,
+  "languageRules": true,
   "runtimeProbe": "auto",
   "runtimeRoutes": [],
   "visualDiffThresholdPct": 1.0,
@@ -216,6 +218,33 @@ This makes the skill portable across MCP namespaces and survives codegraph-serve
 - If reviewing a PR: include the PR title/description as intent context
 - Build a per-file slice of the diff (for diff-slicing in Phase 2)
 - Store everything as internal Project Profile (do NOT print to user yet)
+
+**Deterministic pre-dispatch selection.** Before anything is sliced, run the selector over the changed-file list. It is a pure function — no git, no LLM, no filesystem walk — so a dry run and the real run consume one answer instead of each deriving their own:
+
+```bash
+echo "$FILE_RECORDS_JSON" | python3 scripts/select-files.py \
+  --exclude "<--exclude prefixes>" --paths "<--paths prefixes>" \
+  --max-file-diff-bytes <maxFileDiffBytes>
+```
+
+`$FILE_RECORDS_JSON` is one record per changed file — `{"path", "status", "insertions", "deletions", "bytes"}` — built from `git diff --numstat` (binary files report `-`/`-`, which becomes `null`) plus `--name-status` for the status letter and the per-file slice size for `bytes`.
+
+Output: `{"reviewable", "excluded", "counts"}`. Store all three in the Project Profile.
+
+- **`reviewable`** is the set every later phase works from. Each entry carries its `classes` (`code`, `data`, `test`, `ui`, `i18n`, `contract`, `security`, `docs`) — Phase 2 spawns on these, not on prose pattern-matching. `code` means source that executes; `data` is structured configuration (JSON, YAML, TOML) and exists so an added `package.json` does not trigger the test-quality axis.
+- **`excluded`** carries a typed `reason` per file — `binary`, `secret`, `user_rule`, `generated`, `too_large` — and the `pattern` that caused it.
+
+The gate order is load-bearing and lives in `scripts/select-files.py`: **secret paths are checked ahead of the user rules**, so no `--paths` include can admit a credential file and no `--exclude` can claim one under a softer reason. Patterns live in `scripts/file-classes.json`.
+
+**Three exclusions this project deliberately does NOT make**, against the grain of comparable tools:
+
+- test files are *classified* (`test`), never dropped — they are the entire subject of agent `08-test-quality`;
+- `.md` is reviewable, because documentation that contradicts the diff is a finding this skill is expected to catch;
+- **deleted files stay reviewable.** A tool that reviews new content for defects is right to drop them; this skill is not that tool. Rule 7 gives Deleted files downstream-breakage scrutiny, and a deletion whose consumer is unchanged is a diff consisting of nothing *but* the deletion — dropping it would make the breakage invisible rather than cheap.
+
+**Report what was dropped.** The excluded counts go on the Phase 0 heartbeat and into the Phase 3 report (`references/phase-3-report.md`). A file removed from a review silently is the failure mode this layer risks introducing, so it is never silent.
+
+`python3` missing (Phase 0.0) → selection self-skips: every changed file is reviewable and every axis spawns, exactly as before. Like checkpointing, it is an optimization and never a correctness dependency.
 
 ### Step 0.9 — Ensure Output Directories Exist, Write Rules Cache on MISS
 
@@ -319,7 +348,7 @@ Self-skipping: in `auto` mode runs only when dev-server port is open, UI files a
 
 **Goal**: Deep analysis across non-overlapping concern domains. Launch ALL applicable agents IN PARALLEL.
 
-Read `references/phase-2-agents.md` (sibling of this file) for diff-slice mapping, spawn conditions, chunking, timeout/retry rules. Before spawning ANY agent, also Read these sibling files directly so they enter context one-hop-deep from SKILL.md (per the Skills spec's "keep references one level deep" rule):
+Read `references/phase-2-agents.md` (sibling of this file) for diff-slice mapping, spawn conditions, chunking, timeout/retry rules. The agent personas are all named below so they stay one-hop-deep from SKILL.md (per the Skills spec's "keep references one level deep" rule) — but **naming them is not reading them**. Read `agents/_shared.md` and `agents/verifier.md` always; read a numbered persona only once the selector below has returned `spawn: true` for that axis. Reading the four conditional personas for a diff that spawns none of them costs this orchestrator ~13 K characters that are then re-billed on every remaining turn of the session.
 
 - `agents/_shared.md` — severity tiers, 3-question gate, quotas, auto-drop list, `codegraphTools` substitution. ALL agents inherit this.
 - `agents/verifier.md` — Phase 2.5 verifier persona (referenced again from Phase 2.5; loaded here so it is reachable one-hop from SKILL.md).
@@ -333,6 +362,21 @@ Read `references/phase-2-agents.md` (sibling of this file) for diff-slice mappin
 - `agents/08-test-quality.md` — Test Quality (conditional)
 - `agents/09-api-contract.md` — API & Contract (conditional)
 - `agents/10-a11y-i18n.md` — A11y & i18n (conditional)
+
+**The spawn set is computed, not judged.** Feed Step 0.8's selector output to the agent selector and spawn exactly what it returns:
+
+```bash
+echo "$SELECT_FILES_JSON" | python3 scripts/select-agents.py \
+  --extra "<extraAgents>" --skip "<skipAgents>"
+```
+
+Output: `{"agents": {"<id>": {"spawn", "files", "reason"}}, "rule_packs": {"<pack>.md": [paths]}, "counts"}`.
+
+Spawn every axis with `spawn: true` and give it the `files` listed for it — that IS its slice. Spawn nothing with `spawn: false`; carry its `reason` to the Phase 3 report so a reader sees *why* an axis is absent rather than wondering whether it failed. The conditions themselves (which class gates which axis) live in `references/phase-2-agents.md` → **Agents to spawn**, and the class patterns in `scripts/file-classes.json`.
+
+This replaces a judgment call with a computation. The conditional axes previously carried their own `**Only spawn this agent if** …` text, which can only take effect *after* the agent is already running — a backend-only diff still paid four spawns to be told there was nothing to review. Those persona lines remain as a fallback for a manually spawned agent, but the orchestrator no longer relies on them.
+
+`python3` missing → spawn the full set as before.
 
 **Spawn contract — every spawn names its model and its type.** Spawn each agent as a **fresh** subagent (`subagent_type: general-purpose`; never a context-inheriting type such as `fork` — the persona plus the blocks below must be the agent's ONLY framing, and an inheriting spawn re-pays this orchestrator's whole context) and pass an **explicit `model`**. Never spawn without one: an omitted `model` silently inherits the parent session's tier, which pins mechanical axes to the same expensive tier as the bug hunters.
 
@@ -362,7 +406,8 @@ echo "$AGENT_FINDINGS_JSON" | python3 scripts/checkpoint.py save \
 - `python3` missing (Phase 0.0) → checkpointing self-skips: spawn every axis as before. It is an optimization, never a correctness dependency.
 
 **Load each persona once, with `Read`, and reuse the text.** `_shared.md` is read once per run and
-reused for every spawn; each `agents/<id>.md` is read once for the agent it describes. Never shell
+reused for every spawn; each `agents/<id>.md` is read once for the agent it describes — and only for
+an agent that is actually being spawned. Never shell
 out to `cat`/`sed` to collect them, and never re-read one you already hold — the text does not
 change during a run, and whatever you pull in stays resident in *your* context and is re-billed on
 every remaining turn of the session, on top of the copy each agent gets.
@@ -375,7 +420,7 @@ every remaining turn of the session, on top of the copy each agent gets.
 For each agent you spawn: pass its persona + `_shared.md` (concatenated) + the diff slice as the prompt. Wrap each part in XML tags so the agent parses the prompt unambiguously (Anthropic prompt-structuring best practice for prompts that mix instructions with variable inputs). **Canonical block order** — same in every agent prompt and in the Phase 2.5 verifier prompt, blocks marked `?` omitted when empty or absent:
 
 ```
-<review_instructions>?  <persona>  <shared_rules>  <project_profile>  <gate_results>?  <previously_dismissed>?  <diff>
+<review_instructions>?  <persona>  <shared_rules>  <language_rules>?  <project_profile>  <gate_results>?  <previously_dismissed>?  <diff>
 ```
 
 `<review_instructions>` carries the repo's `REVIEW.md` verbatim (Step 0.5) and leads the prompt because it is the highest-priority input; its precedence over persona and shared rules — and the evidence-discipline carve-out it may not override — are stated in `agents/_shared.md`. Before spawning, substitute these placeholders in the concatenated text:
@@ -392,7 +437,9 @@ Include the per-file `changeTypes` from Step 0.8 in `<project_profile>` so agent
 
 **Dismissed-finding digest.** Before spawning agents, read `stateFile` (`.claude/review-all/state.json`; absent → empty). Collect entries with `status: wontfix`, or `status: snoozed` with a future `snoozed_until`; cap at the 30 most-recently-seen. Render each as `[WONTFIX | SNOOZED until <date>] <root_cause_key> @ <file_line> (<severity>)` and include the list in every agent prompt as `<previously_dismissed>` (omit the tag entirely when the list is empty). This feeds the team's own review-history back to the agents so they skip re-deriving findings the team already dismissed at a still-unchanged location — saving generation and verifier spend — while the Phase 2.5 Step 2.5.0 central drop stays the guarantee. Agents match on diff-membership, not a recomputed hash (see `agents/_shared.md` → Previously-dismissed findings): a dismissed location that this diff changed is raised normally, since the dismissal may no longer hold.
 
-Apply `extraAgents` and `skipAgents` from `.claude/review-all.json`.
+**Language rule packs — `<language_rules>`.** A per-language checklist of the defects and the *false positives* that language actually invites, injected only for the languages this agent's slice contains. `select-agents.py` returns `rule_packs` already grouped: `{"python.md": [paths], "java.md": [paths]}`. Read each pack named there ONCE from `rules/<pack>` and concatenate the ones whose paths intersect this agent's slice into a single `<language_rules>` block — one copy per language present, never one per file. A Java-only diff never pays for the TypeScript pack, and a pack is read once per run, not once per agent (same rule as the personas above).
+
+Config key `languageRules` (default `true`) disables the block entirely; `rules/default.md` covers file types no pack matches.
 
 Each agent returns findings with `root_cause_key` (used for cross-agent dedup).
 

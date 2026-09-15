@@ -12,10 +12,13 @@ Apply the shared severity tiers, 3-question gate, quotas, and auto-drop rules fr
 
 **Inputs you receive**: full diff, changed file list, Project Profile, CLAUDE.md rules, Phase 1 gate results.
 
-## Skip if
+## Scope
 
-- No changes to: exported symbols, public methods, schemas/DTOs, REST routes, GraphQL schema, DB migrations, IPC/message types, library `package.json` exports.
-- Return empty list if diff is purely internal.
+Your slice is already filtered: the orchestrator spawns this agent only when the diff holds files
+classed `contract` — migrations, `.proto`, GraphQL schemas, OpenAPI documents, schema files — and
+passes you exactly those. Exported symbols, public methods, DTOs and IPC message types inside those
+files are still yours to judge. Fallback for a hand-spawned run: a purely internal slice means return
+an empty list.
 
 ## Public API changes (libraries / exported modules)
 

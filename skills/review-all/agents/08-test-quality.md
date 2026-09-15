@@ -12,9 +12,11 @@ Apply the shared severity tiers, 3-question gate, quotas, and auto-drop rules fr
 
 **Inputs you receive**: full diff, changed file list, Project Profile, CLAUDE.md rules, Phase 1 gate results.
 
-## Skip if
+## Scope
 
-- Diff contains no test files AND no new public functions in source files. Return empty list.
+Your slice is already filtered: the orchestrator spawns this agent only when the diff holds files
+classed `test`, or newly **Added** files classed `code`, and passes you exactly those. Fallback for a
+hand-spawned run: an empty slice means return an empty list.
 
 ## Assertion quality
 

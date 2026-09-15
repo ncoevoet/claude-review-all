@@ -8,20 +8,22 @@ Agent personas are listed directly in SKILL.md's Phase 2 section so they live on
 
 All slices below are computed from the **filtered diff** — i.e. after `--paths` / `--exclude` and the multi-workspace scope prompt from Step 0.1 have been applied. No agent ever sees files outside the user-resolved scope.
 
-To reduce token duplication, send each agent only the diff slice it needs:
+To reduce token duplication, send each agent only the diff slice it needs. **The slice is not chosen by hand — it is the `files` array `scripts/select-agents.py` returns for that axis** (SKILL.md Phase 2). The table below states what that computes to:
 
 | Agent | Diff slice |
 |-------|-----------|
-| Standards (01) | Full diff |
-| Bugs & Security (02) | Full diff |
-| DRY & Smells (03) | Full diff + related files (callers/callees if codegraph) |
-| Consistency & History (04) | Full diff + git blame on changed sections |
-| Simplification (05) | Full diff |
-| Security Deep Dive (06) | Auth/crypto/API/infra files only |
-| Performance (07) | Full diff |
-| Test Quality (08) | Test files in diff + new public functions in source diff |
-| API & Contract (09) | Files with public exports / schemas / routes / migrations |
-| A11y & i18n (10) | UI files + translation files only |
+| Standards (01) | Reviewable diff |
+| Bugs & Security (02) | Reviewable diff |
+| DRY & Smells (03) | Reviewable diff + related files (callers/callees if codegraph) |
+| Consistency & History (04) | Reviewable diff + git blame on changed sections |
+| Simplification (05) | Reviewable diff |
+| Security Deep Dive (06) | Files with class `security` |
+| Performance (07) | Reviewable diff |
+| Test Quality (08) | Files with class `test`, plus Added files with class `code` |
+| API & Contract (09) | Files with class `contract` |
+| A11y & i18n (10) | Files with class `ui` or `i18n` |
+
+**"Reviewable diff" is narrower than "full diff" was.** It is the changed-file set after Step 0.8's pre-dispatch gates — binary, secret paths, the generated/vendor/lock list, and any single file whose diff exceeds `maxFileDiffBytes`. Six of these ten axes receive it, so a lockfile or a `dist/` bundle that slipped through used to be duplicated six times over. What is *not* done here is concern-based narrowing of those six — Performance still sees every reviewable file, not a guess at which files have hot paths. That is where a missed bug would hide, and it is deliberately not attempted.
 
 All agents also receive: changed file list, Project Profile, CLAUDE.md rules, Phase 1 gate results, PR description if applicable, and the `<previously_dismissed>` digest of `wontfix` / non-expired-`snoozed` findings from `stateFile` (built in SKILL.md Phase 2). Agents suppress a matching finding only when its location is **unchanged in this diff** — see `agents/_shared.md` → Previously-dismissed findings. (This reverses the earlier "agents don't need the suppression list" stance: feeding the team's own dismissals up front spares re-deriving and re-verifying them; the Phase 2.5 Step 2.5.0 central filter still drops any that slip through, so it remains the guarantee — the digest is a spend-saving hint, not the gate.)
 
@@ -46,6 +48,8 @@ Rules:
 
 ## Agents to spawn
 
+**Spawn conditions are data, not prose.** Each condition below names a *file class* assigned by `scripts/file-classes.json` and evaluated by `scripts/select-agents.py`. The orchestrator spawns what the script returns; it does not re-derive these conditions by reading the diff.
+
 | # | Agent | Persona | Model | Spawn condition |
 |---|-------|---------|-------|-----------------|
 | 1 | Standards & Clarity | `01-standards.md` | `sonnet` | Always |
@@ -53,13 +57,17 @@ Rules:
 | 3 | DRY & Code Smells | `03-dry-smells.md` | `sonnet` | Always |
 | 4 | Consistency & History | `04-consistency-history.md` | `sonnet` | Always |
 | 5 | Simplification | `05-simplification.md` | `sonnet` | Always |
-| 6 | Security Deep Dive | `06-security-deep-dive.md` | `opus` | Files match auth/crypto/API/infra patterns |
+| 6 | Security Deep Dive | `06-security-deep-dive.md` | `opus` | Any file with class `security` |
 | 7 | Performance | `07-performance.md` | `opus` | Always |
-| 8 | Test Quality | `08-test-quality.md` | `sonnet` | Test files in diff OR new public functions |
-| 9 | API & Contract | `09-api-contract.md` | `opus` | Public exports / schemas / routes / migrations changed |
-| 10 | A11y & i18n | `10-a11y-i18n.md` | `sonnet` | UI / translation files changed |
+| 8 | Test Quality | `08-test-quality.md` | `sonnet` | Any file with class `test`, OR any Added file with class `code` |
+| 9 | API & Contract | `09-api-contract.md` | `opus` | Any file with class `contract` |
+| 10 | A11y & i18n | `10-a11y-i18n.md` | `sonnet` | Any file with class `ui` or `i18n` |
 
-Apply `extraAgents` and `skipAgents` from `.claude/review-all.json`.
+Every axis is `spawn: false` when the reviewable set is empty — a review whose every changed file was excluded spawns nothing and says so.
+
+`extraAgents` and `skipAgents` from `.claude/review-all.json` are passed to the script as `--extra` / `--skip`; `skipAgents` overrides an `Always` row.
+
+**Why this moved out of the personas.** Axes 6, 8, 9 and 10 each still carry an `**Only spawn this agent if** …` / `## Skip if` line, and that line can only execute once the agent is already running. As the sole mechanism it bought nothing: a backend-only diff paid four spawns — persona plus `_shared.md` plus project profile, a measured **73 545-character floor** before any diff — to receive four empty arrays. The persona lines stay as a fallback for a hand-spawned agent; the gate is now the script.
 
 Each agent returns findings with `root_cause_key` (used for cross-agent dedup).
 

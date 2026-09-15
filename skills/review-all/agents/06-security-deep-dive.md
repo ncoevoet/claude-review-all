@@ -6,16 +6,13 @@ model: opus
 
 # Agent 6: Security Deep Dive (CONDITIONAL)
 
-**Only spawn this agent if** changed files match security-sensitive patterns:
-- Authentication/authorization (auth, login, session, token, permission, guard, interceptor, middleware)
-- Cryptography (encrypt, decrypt, hash, sign, cert, key, jwt, hmac)
-- API endpoint definitions (controller, route, handler, resolver, mutation)
-- Configuration with secrets/credentials patterns
-- Infrastructure (Dockerfile, docker-compose, CI/CD config, deployment)
-- File upload / parser code
-- Code constructing URLs, shell commands, or SQL from external input
+**Your slice is already filtered.** The orchestrator spawns this agent only when the diff holds files
+classed `security` by `scripts/file-classes.json` — auth/session/token/permission/guard/middleware
+paths, crypto, controllers and routes, Dockerfiles, compose files and CI workflows — and passes you
+exactly those files. Review all of them; you are not re-deciding whether this agent should run.
 
-No files match → skip this agent.
+Fallback, for a hand-spawned run only: if nothing in your slice matches the patterns above, return an
+empty list rather than reaching for files outside it.
 
 Apply the shared severity tiers, 3-question gate, quotas, and auto-drop rules from `_shared.md`.
 

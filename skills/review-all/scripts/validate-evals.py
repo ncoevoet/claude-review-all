@@ -22,14 +22,22 @@ Per case (ERROR = fails the gate):
   - fixture.seed_profile_cache (optional) is an object with either a 'raw'
     object (written verbatim) or a non-empty 'rules' string (valid v2 profile)
 
+  - the fixture survives pre-dispatch selection (SKILL.md Step 0.8): at least
+    one file stays reviewable, and every success_criteria.must_detect[].file
+    is one of them. An exclude pattern that swallows a planted defect turns a
+    caught case into an invisible one, and the eval suite would read that as a
+    model regression rather than the config bug it is.
+
 WARN (informational, does not fail): grader.method != llm-rubric, unknown
-per-file keys (likely a before/after typo), missing success_criteria.
+per-file keys (likely a before/after typo), missing success_criteria,
+select-files.py absent (recall guard skipped).
 
 Exit 0 if all valid, 1 if any ERROR, 2 on bad usage.
 Usage: validate-evals.py [EVALS_DIR]   (defaults to ../evals next to this file)
 """
 import json
 import os
+import subprocess
 import sys
 
 SUPPORTED_KINDS = {"synthetic-diff"}
@@ -131,17 +139,99 @@ def validate_case(path):
     return errors, warnings
 
 
+def _selector_records(files):
+    """Turn a fixture's files{} map into select-files.py stdin records.
+
+    A fixture is a synthetic diff, so the status letter and the diff size come
+    from which of before/after/delete the entry carries, not from git.
+    """
+    records = []
+    for path, entry in files.items():
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("delete"):
+            status, body = "D", entry.get("before") or ""
+        elif entry.get("before") is None:
+            status, body = "A", entry.get("after") or ""
+        else:
+            status, body = "M", (entry.get("after") or "") + (entry.get("before") or "")
+        records.append({
+            "path": path, "status": status,
+            "insertions": body.count("\n"), "deletions": 0,
+            "bytes": len(body),
+        })
+    return records
+
+
+def check_selection(case_path, selector):
+    """Return errors where pre-dispatch selection would hide a planted defect.
+
+    The selection layer (SKILL.md Step 0.8) drops files before any agent sees
+    them. A fixture whose planted defect sits in a path the default exclude
+    list happens to match would stop being detectable — and the eval suite
+    would score that as a recall regression in the model rather than as the
+    config bug it is. This makes the config bug fail here instead.
+    """
+    with open(case_path) as fh:
+        case = json.load(fh)
+    name = os.path.basename(case_path)
+    fixture = case.get("fixture") or {}
+    files = fixture.get("files")
+    if not isinstance(files, dict) or not files:
+        return []
+    records = _selector_records(files)
+    if not records:
+        return []
+    proc = subprocess.run(
+        [sys.executable, selector], input=json.dumps(records),
+        capture_output=True, text=True)
+    if proc.returncode != 0:
+        return [f"{name}: select-files.py exited {proc.returncode}: {proc.stderr.strip()[:200]}"]
+    result = json.loads(proc.stdout)
+    reviewable = {f["path"] for f in result.get("reviewable", [])}
+    excluded = {f["path"]: f.get("reason") for f in result.get("excluded", [])}
+
+    errors = []
+    stem = os.path.splitext(name)[0]
+    if not reviewable and stem not in EMPTY_DIFF_ALLOWLIST:
+        reasons = ", ".join(sorted(set(excluded.values())))
+        errors.append(
+            f"{name}: pre-dispatch selection excludes EVERY fixture file ({reasons}) — "
+            f"this case can no longer be detected by any agent")
+    for want in (case.get("success_criteria") or {}).get("must_detect") or []:
+        target = want.get("file") if isinstance(want, dict) else None
+        if not target or target not in files:
+            continue
+        if target in reviewable:
+            continue
+        errors.append(
+            f"{name}: must_detect targets '{target}' but selection excludes it "
+            f"(reason: {excluded.get(target, 'not in output')}) — the planted defect is unreachable")
+    return errors
+
+
 def validate_dir(evals_dir):
-    """Return (errors, warnings, n_cases) aggregated over evals_dir."""
-    errors, warnings, n = [], [], 0
+    """Return (errors, warnings, n_cases, n_selection) aggregated over evals_dir."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    selector = os.path.join(here, "select-files.py")
+    have_selector = os.path.isfile(selector)
+    errors, warnings, n, n_sel = [], [], 0, 0
+    if not have_selector:
+        warnings.append(
+            "select-files.py absent — recall guard SKIPPED, 0 cases checked against "
+            "pre-dispatch selection")
     for fn in sorted(os.listdir(evals_dir)):
         if not fn.endswith(".json") or fn.lower().startswith("readme"):
             continue
         n += 1
-        e, w = validate_case(os.path.join(evals_dir, fn))
+        path = os.path.join(evals_dir, fn)
+        e, w = validate_case(path)
         errors += e
         warnings += w
-    return errors, warnings, n
+        if have_selector and not e:
+            errors += check_selection(path, selector)
+            n_sel += 1
+    return errors, warnings, n, n_sel
 
 
 def main(argv):
@@ -150,7 +240,7 @@ def main(argv):
     if not os.path.isdir(evals_dir):
         print(f"validate-evals: no such dir: {evals_dir}", file=sys.stderr)
         return 2
-    errors, warnings, n = validate_dir(evals_dir)
+    errors, warnings, n, n_sel = validate_dir(evals_dir)
     for w in warnings:
         print(f"WARN  {w}")
     for e in errors:
@@ -159,7 +249,8 @@ def main(argv):
         print(f"validate-evals: {len(errors)} error(s) across {n} case(s)")
         return 1
     tail = f", {len(warnings)} warning(s)" if warnings else ""
-    print(f"validate-evals: {n} case(s) valid{tail}")
+    print(f"validate-evals: {n} case(s) valid{tail}; "
+          f"recall guard checked {n_sel} case(s) against pre-dispatch selection")
     return 0
 
 

@@ -49,6 +49,14 @@ echo "== phase-2 checkpoint invariants gate =="
 bash "$HERE/check-checkpoint.sh" || rc=1
 
 echo
+echo "== pre-dispatch selection invariants gate =="
+bash "$HERE/check-agent-selection.sh" || rc=1
+
+echo
+echo "== language rule pack gate =="
+bash "$HERE/check-rule-packs.sh" || rc=1
+
+echo
 echo "== severity tally gate =="
 bash "$HERE/check-severity-tally.sh" || rc=1
 
