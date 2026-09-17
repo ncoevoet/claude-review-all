@@ -43,6 +43,13 @@ need "$SHARED" '\*\*Data\*\*' "shared: data class"
 need "$SHARED" '\*\*Rendering\*\*' "shared: rendering class"
 need "$SHARED" 'UNVERIFIED — would need' "shared: missing-observation phrasing"
 need "$SHARED" 'never 🔴/🟠' "shared: severity cap on unbacked claims"
+# The cap tells an agent what to do INSTEAD of observing; without these two the
+# prose never tells it to TRY observing first. Measured failure: 1 of 3 runs on
+# the suite's simplest recall case declared a one-line change's crash
+# "unprovable from this repository" without executing either version, while the
+# other two ran a probe and reported it VERIFIED.
+need "$SHARED" 'build the observation' "shared: attempt the observation before capping"
+need "$SHARED" 'not out of reach' "shared: a missing test framework is not an excuse"
 
 # --- verifier.md: the verdict, its required fields, and the independence rule ---
 need "$VERIFIER" 'The .unverified. verdict' "verifier: unverified verdict section"
