@@ -60,7 +60,12 @@ def load_cases(evals_dir):
 
 
 def parse_lines(lines):
-    """Parse RESULT,<id>,<verdict> ... and SCORE,<id>,c,i,d,s,q,total lines."""
+    """Parse RESULT,<id>,<verdict> ... and SCORE,<id>,c,i,d,s,q,total[,source] lines.
+
+    The trailing source field (comment / summary / sections) was added when the
+    tally gained script-side recovery; accept both widths so an older results
+    file still scores. An exact-width test silently dropped every SCORE line.
+    """
     results = {}
     scores = {}
     for raw in lines:
@@ -71,7 +76,7 @@ def parse_lines(lines):
                 results[parts[1]] = parts[2].split()[0].upper()
         elif line.startswith("SCORE,"):
             parts = line.split(",")
-            if len(parts) == 8:
+            if len(parts) >= 8:
                 try:
                     scores.setdefault(parts[1], []).append([int(x) for x in parts[2:8]])
                 except ValueError:

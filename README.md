@@ -156,7 +156,7 @@ Every spawned agent and every verifier must have returned with valid JSON, or be
 
 ### Phase 3 — Unified report
 
-Opens with a one-line **Verdict** (`N must-fix before merge`, or ✅ none) for instant triage, then: Intent · Summary · Gate Results · 🔴 Critical · 🟠 Important · 🟡 Debt · 🔵 Suggested · ⚪ Questions · 🔬 Unverified · Dependency Changes · Appendix · **Scope footer** (files reviewed / skipped). The Gate Results table carries a mandatory **Provenance** column — the exact command, its exit code, and when it ran — because a gate with no provenance may not be rendered `PASS`; that is what separates a build that happened from one that was assumed. 🔴/🟠 get full anatomy (failure-mode title, `[severity · confidence]` tag, one-sentence impact, suggested fix, ≤8-line evidence); 🟡/🔵/⚪ collapse to one line each. The Summary also reports a **Merge-readiness %** (a transparent resolved/total must-fix ratio that climbs as fixes apply) and **change-type buckets** (files Added/Modified/Deleted/Renamed). The last line is a machine-readable `<!-- review-all-severity: {…} -->` comment for CI parsing; the Phase 4 **Export findings** action additionally emits `review-<ts>.json` + `review-<ts>.sarif` for CI gates.
+Opens with a one-line **Verdict** (`N must-fix before merge`, or ✅ none) for instant triage, then: Intent · Summary · Gate Results · 🔴 Critical · 🟠 Important · 🟡 Debt · 🔵 Suggested · ⚪ Questions · 🔬 Unverified · Dependency Changes · Appendix · **Scope footer** (files reviewed / skipped). The Gate Results table carries a mandatory **Provenance** column — the exact command, its exit code, and when it ran — because a gate with no provenance may not be rendered `PASS`; that is what separates a build that happened from one that was assumed. 🔴/🟠 get full anatomy (failure-mode title, `[severity · confidence]` tag, one-sentence impact, suggested fix, ≤8-line evidence); 🟡/🔵/⚪ collapse to one line each. The Summary also reports a **Merge-readiness %** (a transparent resolved/total must-fix ratio that climbs as fixes apply) and **change-type buckets** (files Added/Modified/Deleted/Renamed). The last line is a machine-readable `<!-- review-all-severity: {…} -->` comment for CI parsing (`scripts/severity-tally.py` recovers the counts, and names which source it used, from a report that dropped it); the Phase 4 **Export findings** action additionally emits `review-<ts>.json` + `review-<ts>.sarif` for CI gates.
 
 Heartbeat lines print at each phase boundary so the user sees forward motion on long runs.
 
@@ -334,6 +334,7 @@ claude-review-all/
 │                             # select-files + select-agents + file-classes.json
 │                             # (deterministic pre-dispatch selection)
 │                             # code-hash (the one state.json code_hash impl)
+│                             # severity-tally (recovers the per-tier counts)
 ├── tests/                    # unit tests + check-anonymization.sh (gitignored blocklist)
 │                             # + one check-*.sh doc gate per instruction-only feature
 └── .github/workflows/ci.yml  # shellcheck + test suite (incl. anonymization + eval-schema gates)

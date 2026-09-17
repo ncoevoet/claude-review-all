@@ -52,24 +52,14 @@ rubric() {
 print(g.get('rubric','') or '\n'.join(d.get('expected_behavior',[])))" "$1"
 }
 bad_report() { [[ -z "${1// }" || "$1" == *"API Error"* || "$1" == *"Execution error"* ]]; }
-# Extract per-tier counts from the report's machine-readable severity comment
-# (phase-3-report.md: `<!-- review-all-severity: {...} -->`). Echoes
-# "c,i,d,s,q,total"; exits non-zero when the comment is absent.
-sev_line() {
-  printf '%s' "$1" | python3 -c '
-import sys, re, json
-m = None
-for line in sys.stdin:
-    mm = re.search(r"review-all-severity:\s*(\{.*?\})\s*-->", line)
-    if mm:
-        m = mm.group(1)
-if not m:
-    sys.exit(1)
-d = json.loads(m)
-v = [int(d.get(k, 0)) for k in ("critical", "important", "debt", "suggested", "question")]
-print(",".join(str(x) for x in v + [sum(v)]))
-'
-}
+# Extract per-tier counts from the report. Delegates to severity-tally.py, which
+# prefers the report's `<!-- review-all-severity: {...} -->` comment and falls
+# back to the Summary section's `**Findings**:` line, then to counting section
+# entries — because the comment is an INSTRUCTION and held in only 7 of 9 runs
+# measured 2026-09-17. Echoes "c,i,d,s,q,total,source"; exits non-zero when no
+# source is recoverable. The source travels WITH the counts so a repaired tally
+# is never mistaken for an obeyed instruction.
+sev_line() { printf '%s' "$1" | python3 "$HERE/severity-tally.py" --source; }
 
 eff=()
 [[ -n "${REVIEW_ALL_EVAL_EFFORT:-}" ]] && eff=(--effort "$REVIEW_ALL_EVAL_EFFORT")
@@ -121,9 +111,16 @@ for f in "$EVALS"/*.json; do
     # the loss is invisible until someone asks why there are no SCORE lines.
     if sc=$(sev_line "$report") && [[ -n "$sc" ]]; then
       echo "SCORE,$id,$sc"
+      # A recovered tally keeps the measurement, but the instruction was still
+      # disobeyed — say so, or a rising non-compliance rate hides behind a
+      # complete-looking results file.
+      case "$sc" in
+        *,comment) ;;
+        *) echo "run-evals-headless: $id — report dropped the <!-- review-all-severity --> comment; tally recovered from ${sc##*,}." >&2 ;;
+      esac
     else
       echo "SCORE,$id,MISSING"
-      echo "run-evals-headless: $id — report carried no <!-- review-all-severity --> tally; per-tier counts unavailable for this run." >&2
+      echo "run-evals-headless: $id — no severity tally recoverable from the report (no comment, no Findings line, no severity sections)." >&2
     fi
     judge=$(printf 'You are grading a code-review report against a rubric. Reason briefly, then on the LAST line output exactly PASS or FAIL.\n\n<rubric>\n%s\n</rubric>\n\n<report>\n%s\n</report>\n' \
         "$rb" "$report" | "${to[@]}" claude -p --dangerously-skip-permissions "${mdl[@]}" 2>/dev/null)
