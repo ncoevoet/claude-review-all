@@ -1,0 +1,36 @@
+{
+  "id": "96-crash-not-rce",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A new webhook handler calls JSON.parse on the raw request body with no try/catch. Malformed input throws a SyntaxError that propagates uncaught, producing an unhandled-exception 500 (availability/error-handling issue). There is no eval, no Function() construction, no deserialization of callables, no shell invocation, nothing that could execute attacker-supplied code \u2014 this is a crash, not code execution. A reviewer that collapses 'unhandled exception from untrusted input' into 'remote code execution' would over-escalate it to CRITICAL.",
+    "files": {
+      "src/webhooks/PaymentWebhook.js": {
+        "after": "function handleWebhook(req, res) {\n  const payload = JSON.parse(req.body);\n  processPayload(payload);\n  res.status(200).send('ok');\n}\n\nfunction processPayload(payload) {\n  return { received: payload.eventType };\n}\n\nmodule.exports = { handleWebhook };\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "unhandled-error",
+        "file": "src/webhooks/PaymentWebhook.js",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "handleWebhook in src/webhooks/PaymentWebhook.js calls JSON.parse(req.body) with no try/catch and no upstream body-validation middleware shown; a malformed body throws a SyntaxError that is not caught anywhere in this handler, producing an unhandled exception (crash / 500, an availability and error-handling issue). Nothing in this file executes attacker-controlled code: no eval, no Function(), no dynamic require, no deserialization of a callable, no shell command. PASS if the report either (a) does not mention this at all, or (b) flags the unhandled JSON.parse exception (malformed body -> uncaught throw -> 500 / crash / DoS via repeated malformed requests) at severity \ud83d\udfe0 IMPORTANT or lower (IMPORTANT, DEBT, SUGGESTED, or QUESTION are all fine) and describes the impact as a crash, unhandled exception, or denial of availability \u2014 NOT as code execution. FAIL if the report rates this finding \ud83d\udd34 CRITICAL, or if it describes the impact as remote code execution, arbitrary code execution, RCE, or any claim that attacker-supplied JSON causes code to run rather than the parser to throw."
+  },
+  "expected_behavior": [
+    "If reported, the unhandled JSON.parse exception is capped at IMPORTANT or lower",
+    "The impact is described as a crash / unhandled exception / availability issue"
+  ],
+  "expected_not_behavior": [
+    "Does NOT rate the finding CRITICAL",
+    "Does NOT describe the impact as remote code execution / arbitrary code execution"
+  ]
+}

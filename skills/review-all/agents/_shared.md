@@ -104,13 +104,26 @@ Report these as normal findings, tagged `pre_existing: true` in the JSON output.
 
 ## Previously-dismissed findings
 
-The orchestrator may pass a `<previously_dismissed>` block listing findings the team explicitly dismissed in a prior review — each `wontfix`, or non-expired `snoozed`, entry from `stateFile`, rendered as `[WONTFIX | SNOOZED until <date>] <root_cause_key> @ <file:line> (<severity>)`. This is the team's own review-history feedback.
+The orchestrator may pass a `<previously_dismissed>` block listing findings already dismissed in a
+prior review. It carries two kinds of entry, and they do NOT carry the same weight:
+
+- **Human dismissals** — each `wontfix`, or non-expired `snoozed`, entry from `stateFile`, rendered
+  `[WONTFIX | SNOOZED until <date>] <root_cause_key> @ <file:line> (<severity>)`. A person decided.
+- **Machine rejections** — each `rejected` entry, rendered
+  `[REJECTED score <N>] <root_cause_key> @ <file:line> (<severity>)`. A Phase 2.5 verifier scored the
+  finding below 50 on a previous run. That is a score, not a decision.
 
 Before raising a finding, check it against this list:
 - If your finding's root cause + location matches a dismissed entry AND that location is **unchanged in this diff** → do NOT raise it. The team already decided; re-raising it is noise.
 - If the location **is changed in this diff** → the dismissal may no longer hold. Raise the finding normally and let the Phase 2.5 verifier adjudicate.
+- **Carve-out — a `REJECTED` entry never suppresses a 🔴 CRITICAL.** If you would raise this finding
+  at 🔴, raise it regardless of the machine rejection and let the verifier re-adjudicate. A hostile
+  verifier mis-scoring a genuinely novel top-severity finding is this skill's documented weak spot;
+  a stored score must not make that miss permanent. `WONTFIX`/`SNOOZED` have no such carve-out — a
+  human dismissal at an unchanged location is respected at every severity.
 
-Match on the team's explicit decision, not a guess — you only suppress what a human dismissed at a still-unchanged location, so this stays high-precision. It is an up-front spend-saver (you skip re-deriving and re-verifying a known-dismissed finding); the Phase 2.5 Step 2.5.0 central filter still drops any dismissed finding that slips through.
+Match on the explicit prior decision, not a guess — you suppress only what a human dismissed, or
+what a verifier rejected below 🔴, at a still-unchanged location, so this stays high-precision. It is an up-front spend-saver (you skip re-deriving and re-verifying a known-dismissed finding); the Phase 2.5 Step 2.5.0 central filter still drops any dismissed finding that slips through.
 
 ## Established convention check
 

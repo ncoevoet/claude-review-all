@@ -26,6 +26,14 @@ AFTER the final staging step (untracked -> invisible to the reviewed diff):
     cacheKey/schemaVersion come from running the sibling discover.sh in the
     materialized repo, so there is exactly one hash implementation.
 
+Optional fixture.seed_state_file pre-seeds .claude/review-all/state.json, also
+AFTER staging (untracked -> invisible to the reviewed diff):
+  - {"raw": {...}}       — write the object verbatim (deliberately-stale cases)
+  - {"findings": {...}}  — write a valid v1 state file, filling in each entry's
+    code_hash from the materialized repo via the sibling code-hash.py and its
+    verifier_version from agents/verifier.md frontmatter, unless the fixture
+    states them explicitly. One hash implementation, one version source.
+
 Usage: materialize-fixture.py FIXTURE.json [DEST_DIR]
 """
 import json
@@ -68,6 +76,47 @@ def seed_profile_cache(repo, seed):
     }
     with open(target, "w") as f:
         json.dump(profile, f)
+
+
+def current_verifier_version():
+    here = os.path.dirname(os.path.abspath(__file__))
+    persona = os.path.join(here, "..", "agents", "verifier.md")
+    with open(persona, encoding="utf-8") as f:
+        for line in f:
+            if line.startswith("version:"):
+                return int(line.split(":", 1)[1].strip())
+    raise SystemExit("materialize: verifier.md has no frontmatter version")
+
+
+def seed_state_file(repo, seed):
+    state_dir = os.path.join(repo, ".claude", "review-all")
+    os.makedirs(state_dir, exist_ok=True)
+    target = os.path.join(state_dir, "state.json")
+    if "raw" in seed:
+        with open(target, "w") as f:
+            json.dump(seed["raw"], f)
+        return
+    here = os.path.dirname(os.path.abspath(__file__))
+    hasher = os.path.join(here, "code-hash.py")
+    findings = {}
+    for key, entry in seed.get("findings", {}).items():
+        entry = dict(entry)
+        file_line = entry.get("file_line", "")
+        if "code_hash" not in entry:
+            if ":" in file_line and file_line.rpartition(":")[2].isdigit():
+                args = ["anchored", repo, file_line]
+            else:
+                args = ["anchorless", file_line,
+                        entry.get("severity", ""), key]
+            out = subprocess.run([sys.executable, hasher] + args,
+                                 check=True, capture_output=True, text=True)
+            entry["code_hash"] = out.stdout.strip()
+        if "verifier_version" not in entry:
+            entry["verifier_version"] = current_verifier_version()
+        findings[key] = entry
+    state = {"version": 1, "migrations": [], "findings": findings}
+    with open(target, "w") as f:
+        json.dump(state, f)
 
 
 def main():
@@ -121,6 +170,10 @@ def main():
     seed = fx.get("seed_profile_cache")
     if isinstance(seed, dict):
         seed_profile_cache(repo, seed)
+
+    state_seed = fx.get("seed_state_file")
+    if isinstance(state_seed, dict):
+        seed_state_file(repo, state_seed)
 
     print(repo)
 

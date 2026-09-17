@@ -20,6 +20,8 @@ Transitions implemented:
     (this script can't read code; the caller passes a separate JSON of
     keys-whose-code-changed via env var STATE_SWEEP_CHANGED_KEYS=path)
   - wontfix whose code_hash no longer matches → open
+  - rejected whose code_hash no longer matches → open (the refuted code is gone;
+    the next run that surfaces a finding there re-adjudicates it)
   - fixed/stale → open when the key is seen again this run (regression):
     a previously-resolved finding that re-surfaces is reopened and
     fix_commit_sha is cleared.
@@ -93,6 +95,7 @@ def main():
     now = datetime.now(tz=timezone.utc)
     transitions = {"snoozed_to_open": 0, "open_to_fixed": 0,
                    "open_to_stale": 0, "wontfix_to_open": 0,
+                   "rejected_to_open": 0,
                    "reopened_on_resight": 0}
 
     for key, entry in state["findings"].items():
@@ -115,6 +118,12 @@ def main():
             entry["status"] = "open"
             entry["fix_commit_sha"] = None
             transitions["wontfix_to_open"] += 1
+            continue
+
+        if status == "rejected" and code_changed:
+            entry["status"] = "open"
+            entry["fix_commit_sha"] = None
+            transitions["rejected_to_open"] += 1
             continue
 
         if status == "open" and not seen_this_run:

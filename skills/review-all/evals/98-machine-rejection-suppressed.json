@@ -1,0 +1,57 @@
+{
+  "id": "98-machine-rejection-suppressed",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "src/payments/RefundService.js is modified: lines 1-13 (including the empty catch (loggingError) {} block in logRefundAttempt, at line 6) are byte-identical between before and after \u2014 the diff appends a new function, runRefundReconciliation, plus a new child_process import, after the unchanged block. A sibling file, RefundAdminRoutes.js, is added and calls runRefundReconciliation(req.body.refundId) \u2014 an HTTP request body field flows unsanitized into execSync('reconcile-refund --id=' + refundId), a command injection. The state file seeds a prior 'rejected' verdict for the unchanged empty-catch swallowed-exception pattern at RefundService.js:6, so a Phase 2.5 verifier already scored it below 50 on a previous run; the code at that location is unchanged, so it must not be re-raised. The new command injection is a separate root cause at a different, newly-added location and carries no such history.",
+    "files": {
+      "src/payments/RefundService.js": {
+        "before": "const db = require('../db/connection');\n\nfunction logRefundAttempt(refundId, err) {\n  try {\n    console.error('refund failed', refundId, err);\n  } catch (loggingError) {\n    // best-effort logging; do not let a logging failure mask the original error\n  }\n}\n\nfunction issueRefund(refundId, amount) {\n  return db.query('UPDATE refunds SET status = ? WHERE id = ?', ['issued', refundId]);\n}\n\nmodule.exports = { logRefundAttempt, issueRefund };\n",
+        "after": "const db = require('../db/connection');\n\nfunction logRefundAttempt(refundId, err) {\n  try {\n    console.error('refund failed', refundId, err);\n  } catch (loggingError) {\n    // best-effort logging; do not let a logging failure mask the original error\n  }\n}\n\nfunction issueRefund(refundId, amount) {\n  return db.query('UPDATE refunds SET status = ? WHERE id = ?', ['issued', refundId]);\n}\n\nconst { execSync } = require('child_process');\n\nfunction runRefundReconciliation(refundId) {\n  execSync('reconcile-refund --id=' + refundId);\n}\n\nmodule.exports = { logRefundAttempt, issueRefund, runRefundReconciliation };\n"
+      },
+      "src/payments/RefundAdminRoutes.js": {
+        "after": "const { runRefundReconciliation } = require('./RefundService');\n\nfunction handleReconcile(req, res) {\n  runRefundReconciliation(req.body.refundId);\n  res.status(202).end();\n}\n\nmodule.exports = { handleReconcile };\n"
+      }
+    },
+    "seed_state_file": {
+      "findings": {
+        "unhandled-error:src/payments/RefundService.js:logRefundAttempt": {
+          "status": "rejected",
+          "severity": "IMPORTANT",
+          "file_line": "src/payments/RefundService.js:6",
+          "last_seen_sha": "seed",
+          "miss_count": 0
+        }
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "injection",
+        "file": "src/payments/RefundService.js",
+        "min_severity": "CRITICAL",
+        "verdict": "keep"
+      }
+    ],
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "unhandled-error",
+        "file": "src/payments/RefundService.js"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "Two distinct findings are in play in src/payments/RefundService.js. (1) The empty catch (loggingError) {} block inside logRefundAttempt, at line 6, is unchanged by this diff and was already scored 'rejected' by a Phase 2.5 verifier on a prior run (seeded in .claude/review-all/state.json at severity IMPORTANT, matching the current code and the current verifier version) \u2014 it must NOT be re-raised. (2) The new function runRefundReconciliation, added by this diff, calls execSync('reconcile-refund --id=' + refundId) with no sanitization; the sibling file RefundAdminRoutes.js (also added by this diff) passes req.body.refundId \u2014 an attacker-controlled HTTP request body field \u2014 straight into it, a shell/command injection reachable from an admin HTTP endpoint. PASS only if BOTH hold: (a) the command injection in runRefundReconciliation is reported in the main report at \ud83d\udd34 CRITICAL; (b) the swallowed/empty-catch logging finding in logRefundAttempt at line 6 does NOT reappear anywhere in the report at any severity. FAIL if either the command injection is missing, downgraded below CRITICAL, or omitted from the main report; or if the previously-rejected empty-catch finding at RefundService.js:6 is re-raised."
+  },
+  "expected_behavior": [
+    "The new command injection in runRefundReconciliation (reached via RefundAdminRoutes.js) is reported at CRITICAL",
+    "The previously-rejected empty-catch finding at RefundService.js:6 is not re-raised"
+  ],
+  "expected_not_behavior": [
+    "Does NOT omit or downgrade the new command-injection finding",
+    "Does NOT re-report the machine-rejected, code-unchanged swallowed-exception finding"
+  ]
+}

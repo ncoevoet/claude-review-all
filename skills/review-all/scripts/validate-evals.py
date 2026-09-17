@@ -19,6 +19,9 @@ Per case (ERROR = fails the gate):
       * OR rename_only truthy AND files_changed is an int >= 1
   - the fixture yields a reviewable diff (a changed/added/deleted file, or
     rename_only) UNLESS the id is on EMPTY_DIFF_ALLOWLIST (the no-op edge case)
+  - fixture.seed_state_file (optional) is an object with either a 'raw'
+    object or a non-empty 'findings' map whose entries carry a known status
+    and a file_line
   - fixture.seed_profile_cache (optional) is an object with either a 'raw'
     object (written verbatim) or a non-empty 'rules' string (valid v2 profile)
 
@@ -42,6 +45,10 @@ import sys
 
 SUPPORTED_KINDS = {"synthetic-diff"}
 FILE_ENTRY_KEYS = {"before", "after", "delete"}
+# state.json lifecycle statuses (references/state-file.md). Kept here so a
+# fixture cannot seed a status the skill has no rules for.
+STATE_STATUSES = {"open", "fixed", "wontfix", "stale", "snoozed", "rejected"}
+
 # The single intentional no-op fixture: a committed baseline, clean working
 # tree, nothing to review. Any other empty-diff fixture is a mistake.
 EMPTY_DIFF_ALLOWLIST = {"04-empty-diff-noop"}
@@ -135,6 +142,28 @@ def validate_case(path):
                 errors.append(f"{name}: seed_profile_cache.raw must be an object")
         elif not _nonempty_str(seed.get("rules")):
             errors.append(f"{name}: seed_profile_cache needs 'raw' (verbatim) or non-empty 'rules' (valid v2)")
+
+    state_seed = fx.get("seed_state_file")
+    if state_seed is not None:
+        if not isinstance(state_seed, dict):
+            errors.append(f"{name}: fixture.seed_state_file must be an object")
+        elif "raw" in state_seed:
+            if not isinstance(state_seed["raw"], dict):
+                errors.append(f"{name}: seed_state_file.raw must be an object")
+        else:
+            findings = state_seed.get("findings")
+            if not isinstance(findings, dict) or not findings:
+                errors.append(f"{name}: seed_state_file needs 'raw' (verbatim) or a non-empty 'findings' map")
+            else:
+                for key, entry in findings.items():
+                    if not isinstance(entry, dict):
+                        errors.append(f"{name}: seed_state_file.findings[{key!r}] must be an object")
+                        continue
+                    if entry.get("status") not in STATE_STATUSES:
+                        errors.append(f"{name}: seed_state_file.findings[{key!r}].status "
+                                      f"{entry.get('status')!r} not in {sorted(STATE_STATUSES)}")
+                    if not _nonempty_str(entry.get("file_line")):
+                        errors.append(f"{name}: seed_state_file.findings[{key!r}] needs a 'file_line'")
 
     return errors, warnings
 

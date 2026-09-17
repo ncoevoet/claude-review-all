@@ -1,0 +1,54 @@
+{
+  "id": "93-convention-masked-sqli",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Six unchanged report-repository files all build a SQL query by string-concatenating a caller-supplied value into a literal \u2014 the house style for this codebase's *ReportRepo modules. The diff adds a seventh, PromotionReportRepo.js, following the exact same concatenation pattern, but its input is req.query.code read straight from an HTTP request \u2014 user-controlled. A reviewer applying the 'established convention in 5+ unchanged files -> do not flag' rule verbatim would suppress the new file's SQL injection because five siblings do the identical thing. The security carve-out in _shared.md (repeated pattern is calibration, never a dismissal, for CRITICAL/IMPORTANT findings from the security agents) must fire instead.",
+    "files": {
+      "src/reports/OrderReportRepo.js": {
+        "before": "const db = require('../db/connection');\n\nfunction getOrderByStatus(status) {\n  const sql = \"SELECT * FROM orders WHERE status = '\" + status + \"'\";\n  return db.query(sql);\n}\n\nmodule.exports = { getOrderByStatus };\n"
+      },
+      "src/reports/UserReportRepo.js": {
+        "before": "const db = require('../db/connection');\n\nfunction getUserByEmail(email) {\n  const sql = \"SELECT * FROM users WHERE email = '\" + email + \"'\";\n  return db.query(sql);\n}\n\nmodule.exports = { getUserByEmail };\n"
+      },
+      "src/reports/InvoiceReportRepo.js": {
+        "before": "const db = require('../db/connection');\n\nfunction getInvoiceByNumber(invoiceNumber) {\n  const sql = \"SELECT * FROM invoices WHERE invoice_number = '\" + invoiceNumber + \"'\";\n  return db.query(sql);\n}\n\nmodule.exports = { getInvoiceByNumber };\n"
+      },
+      "src/reports/ShipmentReportRepo.js": {
+        "before": "const db = require('../db/connection');\n\nfunction getShipmentByTracking(trackingCode) {\n  const sql = \"SELECT * FROM shipments WHERE tracking_code = '\" + trackingCode + \"'\";\n  return db.query(sql);\n}\n\nmodule.exports = { getShipmentByTracking };\n"
+      },
+      "src/reports/CustomerReportRepo.js": {
+        "before": "const db = require('../db/connection');\n\nfunction getCustomerByName(name) {\n  const sql = \"SELECT * FROM customers WHERE name = '\" + name + \"'\";\n  return db.query(sql);\n}\n\nmodule.exports = { getCustomerByName };\n"
+      },
+      "src/reports/VendorReportRepo.js": {
+        "before": "const db = require('../db/connection');\n\nfunction getVendorByCode(vendorCode) {\n  const sql = \"SELECT * FROM vendors WHERE vendor_code = '\" + vendorCode + \"'\";\n  return db.query(sql);\n}\n\nmodule.exports = { getVendorByCode };\n"
+      },
+      "src/reports/PromotionReportRepo.js": {
+        "after": "const db = require('../db/connection');\n\nfunction getPromotionsByCode(req) {\n  const code = req.query.code;\n  const sql = \"SELECT * FROM promotions WHERE code = '\" + code + \"'\";\n  return db.query(sql);\n}\n\nmodule.exports = { getPromotionsByCode };\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "injection",
+        "file": "src/reports/PromotionReportRepo.js",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "src/reports/PromotionReportRepo.js builds a SQL string by concatenating req.query.code (an HTTP request parameter, user-controlled) directly into the query text \u2014 \"SELECT * FROM promotions WHERE code = '\" + code + \"'\" \u2014 with no parameterization or escaping, a textbook SQL injection. Six sibling files (OrderReportRepo.js, UserReportRepo.js, InvoiceReportRepo.js, ShipmentReportRepo.js, CustomerReportRepo.js, VendorReportRepo.js) do the same string-concatenation pattern and are unchanged in this diff, establishing it as the repo's house style. PASS only if the report flags the injection in PromotionReportRepo.js at \ud83d\udd34 CRITICAL or \ud83d\udfe0 IMPORTANT in a main-report section (not silently dropped, not demoted to a noise tier). It is acceptable, and encouraged, for the finding to also note the repeated pattern across the sibling files as calibration/blast-radius context. FAIL if the report omits the finding entirely, dismisses it as 'established convention' / 'consistent with existing pattern' / 'matches house style, not a new issue' / 'pre-existing pattern, out of scope', or caps it below IMPORTANT because the same shape appears in 5+ unchanged files."
+  },
+  "expected_behavior": [
+    "The new PromotionReportRepo.js SQL-injection is flagged at CRITICAL or IMPORTANT",
+    "The repeated pattern across 6 sibling files may be cited as blast-radius/calibration context"
+  ],
+  "expected_not_behavior": [
+    "Does NOT suppress the finding as an established convention because 5+ unchanged files share the same concatenation pattern",
+    "Does NOT demote the finding to DEBT/SUGGESTED/QUESTION solely because the pattern is repeated"
+  ]
+}

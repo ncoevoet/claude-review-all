@@ -16,7 +16,7 @@ Path: `.claude/review-all/state.json` (location overridable via `.claude/review-
   "migrations": [],
   "findings": {
     "<root_cause_key>": {
-      "status": "open|fixed|wontfix|stale|snoozed",
+      "status": "open|fixed|wontfix|stale|snoozed|rejected",
       "severity": "CRITICAL|IMPORTANT|DEBT|SUGGESTED|QUESTION",
       "first_seen_sha": "<commit sha when first reported>",
       "last_seen_sha": "<commit sha of most recent run that re-saw it>",
@@ -41,6 +41,7 @@ Path: `.claude/review-all/state.json` (location overridable via `.claude/review-
 | `wontfix` | User explicitly dismissed in Phase 4 menu | Phase 4 user action |
 | `stale` | Not re-seen for 2+ consecutive runs while code unchanged | Phase 2.5 promotion: `miss_count >= 2` |
 | `snoozed` | Suppressed until `snoozed_until` | Phase 4 user action; replaces old `snooze.json` |
+| `rejected` | A Phase 2.5 verifier scored the finding < 50 on a previous run | Phase 2.5 Step 2.5b, on a `drop` verdict |
 
 ## Lifecycle rules (run by Phase 2.5)
 
@@ -48,15 +49,24 @@ Path: `.claude/review-all/state.json` (location overridable via `.claude/review-
 2. **Before verification**, for each candidate finding:
    - If status is `wontfix` and `code_hash` matches current code at `file_line` → drop without spending a verifier.
    - If status is `snoozed` and `snoozed_until` is in the future → drop.
+   - If status is `rejected` AND `code_hash` matches current code at `file_line` AND the stored
+     `verifier_version` equals the current `verifier.md` frontmatter `version` → drop without
+     spending a verifier, **unless the candidate's severity is 🔴 CRITICAL** (see *Machine
+     rejections* below). Log "skipped N previously-rejected findings".
    - If status is `open` AND `last_seen_sha == HEAD` AND `code_hash` matches current code → reuse prior verdict (skip verifier). Log "reused state for N findings". This is the idempotent-re-run case (running `/review-all` twice on the same commit).
 3. **After verification**, for every kept/appendix finding (orchestrator-owned — needs per-finding metadata):
    - If new key → insert as `open`, `first_seen_sha = HEAD`, `last_seen_sha = HEAD`, `miss_count = 0`.
    - If existing → update `last_seen_sha = HEAD`, `last_seen_at`, `file_line`, `code_hash`, reset `miss_count = 0`.
    - If existing AND status was `fixed` or `stale` → set status back to `open` and clear `fix_commit_sha` (regression: a resolved finding re-surfaced). `scripts/state-sweep.py` also performs this reopen for any seen-key it finds.
+   - For every finding a verifier returned as `drop`, insert or update its entry with
+     `status: rejected`, the current `file_line`, `severity`, `code_hash`, `last_seen_sha = HEAD`,
+     and the `verifier_version` that produced the drop. `unverified` verdicts are **not** recorded
+     as rejected — they are open questions, not refutations.
 4. **Sweep** existing entries not re-seen in this run:
    - `open` entry, `code_hash` no longer matches code at `file_line` (or file deleted) → transition to `fixed`, set `fix_commit_sha = HEAD`.
    - `open` entry, code still matches → increment `miss_count`. If `miss_count >= 2` → transition to `stale`.
    - `snoozed` entry, `snoozed_until` in the past → transition to `open` (resume normal lifecycle; will be re-evaluated next run that surfaces it).
+   - `rejected` entry, `code_hash` no longer matches → transition to `open` (clear `fix_commit_sha`). The code the verifier refuted is gone; the next run that surfaces a finding there re-adjudicates it from scratch.
    - `wontfix` entry, `code_hash` no longer matches → transition to `open` (clear `fix_commit_sha`). Rationale: a code rewrite at the flagged location may have moved/altered the issue rather than fixed it; do not silently mark `fixed`. Next run that re-surfaces it will re-evaluate; if it does not re-surface, the normal `open`-sweep rules promote it to `fixed` or `stale`.
    - Time-bound fallback: for `open` entries only, if `last_seen_at` is older than 30 days → transition to `stale`. Prevents entries with `miss_count == 1` (or suppressed by `skipAgents`) from sitting around indefinitely. `snoozed` entries are NOT subject to this rule — their lifetime is bounded by `snoozed_until` (handled by the preceding `snoozed → open` transition), and a long snooze (e.g. 90 days) must not be silently promoted to `stale` at day 30.
 5. **Write** state back atomically (`Write` full file, do not append).
@@ -64,6 +74,28 @@ Path: `.claude/review-all/state.json` (location overridable via `.claude/review-
 ### Division of labor: script vs orchestrator
 
 `scripts/state-sweep.py` performs the **sweep** of existing entries (step 4) plus the `fixed`/`stale` → `open` regression reopen, given only the run's seen-keys (and optional changed-keys). It does **not** insert entries for brand-new `root_cause_key`s or recompute `code_hash`/severity/`file_line` — that is step 3, which stays in the orchestrator because it needs per-finding metadata the script is not handed. Run the script for the sweep, then have the orchestrator insert/refresh seen findings.
+
+## Machine rejections vs. human dismissals
+
+`wontfix` is a **decision**; `rejected` is a **score**. They are stored in the same file and read by
+the same Step 2.5.0 filter, but they are not equally trusted, because a stored score can preserve a
+mistake indefinitely and this skill documents verifier mis-scoring on novel patterns as its weak
+spot (`README.md` → Pros/Cons).
+
+Three independent invalidations bound a `rejected` entry, and any one of them reopens it:
+
+1. **The code changed** at `file_line` — the sweep above transitions it to `open`.
+2. **The verifier persona changed** — the entry stores the `verifier_version` that produced the
+   drop, and Step 2.5.0 honours it only on an exact match. A `verifier.md` frontmatter bump
+   therefore invalidates every machine rejection in the file at once, exactly as it invalidates
+   every reused `open` verdict.
+3. **The candidate is 🔴 CRITICAL** — never suppressed by a machine rejection at all. The
+   candidate goes to a verifier and is re-adjudicated. This is the asymmetry that keeps one bad
+   score from permanently burying a real critical; `wontfix` has no such carve-out, because a human
+   dismissing a 🔴 is a decision the review must respect.
+
+No config key governs this. The three invalidations are exact, so there is nothing to tune —
+deleting the entry (or the file) is the escape hatch.
 
 ## Migration from `snooze.json`
 
@@ -83,6 +115,16 @@ Each one-shot migration is identified by a string id stored in the top-level `mi
 
 ## Code hash computation
 
-For each finding with a concrete `file:line`, compute `code_hash = sha256(<3 lines before>\n<flagged lines>\n<3 lines after>)`. The ±3 context lines make the hash robust to whitespace-only edits elsewhere in the file while still detecting real code changes at the flagged location.
+**Do not compute this by hand.** One implementation lives in `scripts/code-hash.py`, for the same
+reason the profile cache key lives only in `discover.sh`: a hash that two producers derive
+independently is a hash that silently stops matching, and every `wontfix` suppression, reused
+verdict and `rejected` machine-dismissal in this file is decided by that comparison.
 
-Findings without a line anchor (cross-file findings, missing-spec findings, repo-wide rules) compute `code_hash = sha256("<file_line>|<severity>|<root_cause_key>")`. These hashes change only when the finding's identifying tuple changes, so reuse semantics still work; `fixed` transitions for these findings depend on the finding no longer surfacing rather than on code-window divergence.
+```bash
+python3 scripts/code-hash.py anchored "$REPO_ROOT" "src/users/UserService.ts:42"
+python3 scripts/code-hash.py anchorless "<file_line>" "<severity>" "<root_cause_key>"
+```
+
+For each finding with a concrete `file:line`, `code_hash = sha256(<3 lines before>\n<flagged line>\n<3 lines after>)`, joined with `\n`, 1-based lines clamped to the file. The ±3 context lines make the hash robust to whitespace-only edits elsewhere in the file while still detecting real code changes at the flagged location. A missing or unreadable file hashes the empty string, so a deletion never matches a hash taken while the file existed — the entry reopens rather than silently staying suppressed.
+
+Findings without a line anchor (cross-file findings, missing-spec findings, repo-wide rules) use the `anchorless` subcommand: `code_hash = sha256("<file_line>|<severity>|<root_cause_key>")`. These hashes change only when the finding's identifying tuple changes, so reuse semantics still work; `fixed` transitions for these findings depend on the finding no longer surfacing rather than on code-window divergence.

@@ -1,0 +1,51 @@
+{
+  "id": "94-convention-nonsecurity-still-dropped",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Six unchanged service files all follow the same harmless, non-security convention: every process<Name>(ctx, opts) function takes the context object first and the options object second, and calls ctx.repo.save(opts.id, opts.payload). The diff adds a seventh, PromotionService.js, following that exact same convention correctly \u2014 same parameter order, same body shape \u2014 and introduces nothing else. This is the precision counterpart to case 93: here the repeated pattern is NOT a security issue, so the established-convention carve-out does not apply and the ordinary 'convention in 5+ unchanged files -> do not flag' rule should suppress it (and there is nothing wrong to report about it in the first place).",
+    "files": {
+      "src/services/OrderService.js": {
+        "before": "function processOrder(ctx, opts) {\n  return ctx.repo.save(opts.id, opts.payload);\n}\n\nmodule.exports = { processOrder };\n"
+      },
+      "src/services/UserService.js": {
+        "before": "function processUser(ctx, opts) {\n  return ctx.repo.save(opts.id, opts.payload);\n}\n\nmodule.exports = { processUser };\n"
+      },
+      "src/services/InvoiceService.js": {
+        "before": "function processInvoice(ctx, opts) {\n  return ctx.repo.save(opts.id, opts.payload);\n}\n\nmodule.exports = { processInvoice };\n"
+      },
+      "src/services/ShipmentService.js": {
+        "before": "function processShipment(ctx, opts) {\n  return ctx.repo.save(opts.id, opts.payload);\n}\n\nmodule.exports = { processShipment };\n"
+      },
+      "src/services/CustomerService.js": {
+        "before": "function processCustomer(ctx, opts) {\n  return ctx.repo.save(opts.id, opts.payload);\n}\n\nmodule.exports = { processCustomer };\n"
+      },
+      "src/services/VendorService.js": {
+        "before": "function processVendor(ctx, opts) {\n  return ctx.repo.save(opts.id, opts.payload);\n}\n\nmodule.exports = { processVendor };\n"
+      },
+      "src/services/PromotionService.js": {
+        "after": "function processPromotion(ctx, opts) {\n  return ctx.repo.save(opts.id, opts.payload);\n}\n\nmodule.exports = { processPromotion };\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "style",
+        "file": "src/services/PromotionService.js"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "src/services/PromotionService.js is a new file that correctly follows this codebase's established, non-security convention \u2014 every process<Name>(ctx, opts) function takes (ctx, opts) in that order and calls ctx.repo.save(opts.id, opts.payload) \u2014 exactly as six unchanged sibling files (OrderService.js, UserService.js, InvoiceService.js, ShipmentService.js, CustomerService.js, VendorService.js) already do. There is nothing security-relevant here: no injection, no auth, no unvalidated input reaching a dangerous sink. PASS only if the report contains NO finding at ANY severity (CRITICAL/IMPORTANT/DEBT/SUGGESTED/QUESTION) about PromotionService.js's parameter order, naming, argument-shape convention, or asking to change/document/enforce the (ctx, opts) pattern. General findings about unrelated files, or a report with zero findings overall, both PASS. FAIL if the report raises any finding about PromotionService.js's parameter convention, ordering, naming, or structure at any severity \u2014 that would mean the non-security established-convention suppression did not apply."
+  },
+  "expected_behavior": [
+    "No finding of any severity is raised about PromotionService.js's (ctx, opts) convention"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the repeated (ctx, opts) parameter-order convention as a DEBT/style/naming issue",
+    "Does NOT ask to document or enforce the convention as a new finding"
+  ]
+}

@@ -99,6 +99,12 @@ A labeled scenario suite that probes whether the orchestrator catches what it sh
 | `91-claude-md-stale-claim` | doc staleness (emergent) | A `CLAUDE.md` architectural invariant stated in prose that shares no identifier with the diff — no third-party call during request handling — falsified by a `fetch()` added inside a handler. The consistency agent catches this **without any explicit rule**, which is why the rule was reverted; the case now guards that emergent behavior against regression. |
 
 | `92-failing-test-gate-lead` | gate results | The first fixture with a **runnable toolchain whose gates genuinely fail**: `package.json` points `test` at plain `node tests/run-tests.js` (no dependencies to install), and the diff breaks `applyDiscount` so it subtracts the percent as flat cents. Must show the test gate FAIL *with provenance* in the gate table and name the underlying percentage bug. Exercises Phase 1 end-to-end and the `<gate_results>` block. |
+| `93-convention-masked-sqli` | recall (regression guard) | Six unchanged `*ReportRepo.js` files all build SQL by string-concatenation — the house style. The diff adds a seventh, `PromotionReportRepo.js`, concatenating a request parameter the same way. Written to prove the "established convention" rule was suppressing security findings; the baseline reports it anyway in 2 of 3 runs, so the suppression is intermittent at worst. |
+| `94-convention-nonsecurity-still-dropped` | precision (guards `93`) | Six unchanged service files share a harmless, non-security `(ctx, opts)` parameter-order convention. The diff adds a seventh file following it correctly, nothing else wrong — must yield NO finding about the convention at any severity. |
+| `95-self-impact-not-privesc` | precision (regression guard) | An authenticated user deletes their own record; the handler resolves the target id from `req.session.userId`, never from request input, so no other principal is reachable — must NOT be reported as IDOR / broken access control / privilege escalation. |
+| `96-crash-not-rce` | precision (regression guard) | A request handler calls `JSON.parse` on the body with no try/catch — an unhandled exception (crash/500), not code execution. May be reported at 🟠 IMPORTANT or lower; a 🔴 CRITICAL rating or a remote-code-execution claim is a FAIL. |
+| `97-defense-in-depth-hardening` | precision (regression guard) | An unchanged allowlist validator (`isAllowedRegion`, a fixed 3-value list) demonstrably blocks the attack before a changed downstream function (`loadRegionConfig`) that lacks its own redundant re-check. The missing second layer must NOT be reported at 🔴/🟠; a 🔵 hardening note is acceptable. |
+| `98-machine-rejection-suppressed` | cross-run state (**non-discriminating — see below**) | Uses `fixture.seed_state_file` to seed a prior `rejected` verdict for an unchanged empty-catch finding. The diff adds a separate, clearly 🔴 CRITICAL command injection elsewhere in the same file plus a sibling caller. The 🔴 must appear in the main report; the seeded, code-unchanged 🟠 must NOT reappear. |
 
 > **What the A/B of these cases established (v0.8.0, N=3, both arms).**
 >
@@ -108,4 +114,30 @@ A labeled scenario suite that probes whether the orchestrator catches what it sh
 > - **`02` cannot serve as an A/B instrument.** Run twice on identical baseline code it returned `PASS (2/3)` then `FAIL (1/3)`, with no timeouts or errors in the raw logs. Per-agent diff ordering, which only `02` exercises, therefore remains **unmeasured** — neither proven nor regressing.
 >
 > **The rule all of this produced: a case proves nothing until the baseline arm has been shown to fail it.** Run the baseline arm on every new case, not just the treatment. A case both arms pass is a regression guard; only a case the baseline fails and the treatment passes is evidence.
+
+> **What the baseline arm of `93`–`98` established (v0.10.1, N=3 baseline only).**
+>
+> These six were written to demonstrate that a set of security evidence-discipline rules — a
+> convention-check carve-out, three severity-inflation guards, and a boundary+trace schema — were
+> necessary. **The baseline passed all six.** None is evidence; all are kept as regression guards,
+> and the rules they were written for were reverted before release.
+>
+> - **`95` PASS 3/3, `96` PASS 3/3, `97` PASS 3/3 on the baseline.** The pre-change skill already
+>   declines to inflate a self-delete into IDOR, an uncaught `JSON.parse` into code execution, or a
+>   missing second layer into a 🔴/🟠 — without any rule saying so. The "do not strengthen the
+>   result" prose bought nothing and cost every review agent context on every run, so it was dropped.
+> - **`93` PASS 2/3 on the baseline.** The convention suppression does fire sometimes, but N=3 cannot
+>   separate 2/3 from 3/3 (the interval on 2/3 spans roughly 20–95%), and a treatment arm at RUNS=1
+>   cannot either. The carve-out is **unmeasured**, not disproven — resolving it needs N≈10 per arm.
+> - **`98` PASS 3/3 on the baseline, and the case is broken by construction.** Its seeded rejection
+>   points at an empty `catch` in an *unchanged* hunk that already carries an explanatory comment, so
+>   the existing changed-lines rule and the auto-drop list suppress it for free — with or without
+>   machine-dismissal memory. To actually test the `rejected` status the seed must sit on a line the
+>   diff changes, with a `code_hash` matching the post-diff code. Until it is rebuilt that way, the
+>   `rejected` mechanism ships **unmeasured**: its payoff is skipped agent derivations and skipped
+>   verifier calls, which a rubric that reads only the final report cannot observe at all.
+>
+> **The second rule this produced: state which claim a case can and cannot settle, before spending on
+> it.** A report-grading rubric can only measure what reaches the report. A mechanism whose payoff is
+> *spend avoided* needs a different instrument — a run counter, not a judge.
 

@@ -84,6 +84,20 @@ class TestStateSweep(unittest.TestCase):
         f = self.sweep({"k": {"status": "wontfix", "fix_commit_sha": "y"}}, [], changed=["k"])
         self.assertEqual(f["k"]["status"], "open")
 
+    def test_rejected_reopens_when_code_changed(self):
+        f = self.sweep({"k": {"status": "rejected", "fix_commit_sha": "y"}}, [], changed=["k"])
+        self.assertEqual(f["k"]["status"], "open")
+        self.assertIsNone(f["k"]["fix_commit_sha"])
+
+    def test_rejected_stays_rejected_when_code_unchanged(self):
+        f = self.sweep({"k": {"status": "rejected"}}, [], changed=[])
+        self.assertEqual(f["k"]["status"], "rejected")
+
+    def test_rejected_wakeup_does_not_cascade_to_fixed(self):
+        """A rejected -> open wake-up must not also be swept to fixed in the same pass."""
+        f = self.sweep({"k": {"status": "rejected"}}, [], changed=["k"])
+        self.assertEqual(f["k"]["status"], "open")
+
     def test_resight_refreshes_last_seen_and_resets_miss(self):
         f = self.sweep({"k": {"status": "open", "miss_count": 3}}, ["k"], head="NEWSHA")
         self.assertEqual(f["k"]["miss_count"], 0)

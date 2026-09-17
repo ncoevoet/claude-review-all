@@ -13,11 +13,13 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 SKILL="$ROOT/skills/review-all/SKILL.md"
+STATE="$ROOT/skills/review-all/references/state-file.md"
+VERIFY="$ROOT/skills/review-all/references/phase-2.5-verification.md"
 SHARED="$ROOT/skills/review-all/agents/_shared.md"
 AGENTS="$ROOT/skills/review-all/references/phase-2-agents.md"
 README="$ROOT/README.md"
 
-for f in "$SKILL" "$SHARED" "$AGENTS" "$README"; do
+for f in "$SKILL" "$SHARED" "$AGENTS" "$README" "$STATE" "$VERIFY"; do
   [[ -f "$f" ]] || { echo "check-dismissed-digest: missing file $f" >&2; exit 2; }
 done
 
@@ -48,6 +50,19 @@ need "$SHARED" 'Step 2.5.0 central filter still drops' "shared: central filter r
 # --- phase-2-agents.md: the reversal of the old no-suppression-list stance ---
 need "$AGENTS" 'previously_dismissed' "agents: digest now in agent inputs"
 need "$AGENTS" 'reverses the earlier' "agents: explicit reversal of prior stance"
+
+# --- machine rejections: a verifier `drop` is remembered, but weighs less than a human decision ---
+need "$SKILL" 'status: rejected' "SKILL: sources rejected entries too"
+need "$SKILL" 'REJECTED score' "SKILL: machine rejections render with their own label"
+need "$SHARED" 'Machine rejections' "shared: machine rejections named as a distinct kind"
+need "$SHARED" 'That is a score, not a decision' "shared: score-vs-decision distinction"
+need "$SHARED" 'never suppresses a' "shared: CRITICAL carve-out on machine rejections"
+need "$STATE" 'Machine rejections vs\. human dismissals' "state-file: the asymmetry section"
+need "$STATE" 'rejected' "state-file: rejected status documented"
+need "$STATE" 'verifier_version' "state-file: rejections keyed on verifier version"
+need "$STATE" 'code-hash\.py' "state-file: one code_hash implementation"
+need "$VERIFY" 'previously-rejected findings' "verify: Step 2.5.0 skip log line"
+need "$VERIFY" 'never recorded as .rejected.' "verify: unverified is not a refutation"
 
 # --- README.md: surfaced as a lifecycle/learning Pro ---
 need "$README" 'previously_dismissed' "README: digest mentioned"

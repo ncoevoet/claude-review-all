@@ -1,0 +1,33 @@
+{
+  "id": "95-self-impact-not-privesc",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A new route handler lets an authenticated user delete their own account. The target row id is resolved from req.session.userId (set by the auth middleware at login, not from any request parameter, body field, or query string) \u2014 so no principal other than the caller's own session can ever be reached through this handler. A reviewer pattern-matching 'delete-by-id endpoint with no ownership check visible in this function' without tracing where the id actually comes from could mistake this for IDOR / broken access control.",
+    "files": {
+      "src/routes/AccountRoutes.js": {
+        "after": "const db = require('../db/connection');\n\nfunction deleteMyAccount(req, res) {\n  const userId = req.session.userId;\n  db.query('DELETE FROM accounts WHERE id = ?', [userId]);\n  res.status(204).end();\n}\n\nmodule.exports = { deleteMyAccount };\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "security",
+        "file": "src/routes/AccountRoutes.js"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "deleteMyAccount in src/routes/AccountRoutes.js deletes the account row whose id is userId = req.session.userId \u2014 the id of the CURRENTLY AUTHENTICATED caller's own session, not any request parameter, body field, or query string. No other principal's row is ever reachable through this handler: there is no path by which one user can supply another user's id. This is a same-principal, self-impact action. PASS if the report does NOT flag this as IDOR / insecure direct object reference / broken access control / missing authorization / missing ownership check / privilege escalation / horizontal or vertical privilege escalation at any severity. A neutral stylistic note, a \ud83d\udd35 SUGGESTED hardening remark (e.g. 'consider requiring re-authentication before a destructive self-delete', or a note about adding an audit log entry), or a QUESTION about UX (confirmation step) is acceptable and does not cause a FAIL, as long as it is not framed as an authorization/IDOR defect. FAIL if the report raises an authorization-bypass, IDOR, broken-access-control, or privilege-escalation finding against this handler at any severity, or claims another user's account could be deleted through it."
+  },
+  "expected_behavior": [
+    "No IDOR / broken-access-control / authorization-bypass / privilege-escalation finding against deleteMyAccount"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim the handler lets one user delete another user's account",
+    "Does NOT rate this an authorization defect because the id resolution isn't re-validated inline"
+  ]
+}

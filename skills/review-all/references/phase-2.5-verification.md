@@ -8,8 +8,9 @@ Before dedupe, read `.claude/review-all/state.json` per the schema and rules in 
 
 Lifecycle interactions with the steps below:
 - Step 2.5a (dedupe): drop any candidate whose `state.json` status is `wontfix` (with matching `code_hash`) or `snoozed` (with future `snoozed_until`) before sending to a verifier.
+- Step 2.5a (dedupe): also drop any candidate whose status is `rejected` with matching `code_hash` **and** a stored `verifier_version` equal to the current `verifier.md` frontmatter `version` — a verifier already refuted it on identical code under identical instructions, so re-verifying it buys nothing. **Except at 🔴 CRITICAL**: a 🔴 candidate is always sent to a verifier regardless of a stored rejection (`state-file.md` → *Machine rejections vs. human dismissals*). Log `skipped N previously-rejected findings`.
 - Step 2.5b (verify): if a candidate's stored `status == open` AND `code_hash` matches current code AND `last_seen_sha == HEAD` AND stored `verifier_version` matches the current persona version (see `verifier.md` frontmatter `version` field), reuse the prior verdict and skip the verifier. Count and log: `reused state for <N> findings`. A `verifier_version` bump (e.g., the hostile-stance change) invalidates all prior verdicts — every finding re-verified next run.
-- After Step 2.5b: update the file per the lifecycle rules in `state-file.md` (insert new, refresh existing, sweep missing into `fixed`/`stale`). Write atomically.
+- After Step 2.5b: update the file per the lifecycle rules in `state-file.md` (insert new, refresh existing, record every `drop` verdict as `rejected` with the producing `verifier_version`, sweep missing into `fixed`/`stale`). Write atomically. An `unverified` verdict is never recorded as `rejected` — it is an open question, not a refutation.
 
 ## Step 2.5a — Dedupe (cheap, before verify)
 

@@ -1,0 +1,38 @@
+{
+  "id": "97-defense-in-depth-hardening",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "src/validation/RegionValidator.js (unchanged, present identically before and after) exposes isAllowedRegion(), which checks membership in a fixed 3-value allowlist (['us-east','us-west','eu-central']) containing no path-traversal metacharacters. handleRegionConfig in RegionRoutes.js calls isAllowedRegion(region) and returns 400 before ever reaching loadRegionConfig \u2014 this call is also unchanged by the diff. The diff modifies loadRegionConfig (the downstream function that builds a filesystem path from region) to add a cache, but loadRegionConfig itself still performs no second region re-validation \u2014 it relies entirely on the caller's upstream check. Because the allowlist is exhaustive and fixed, the downstream path-join can never see a value outside the 3 safe strings, so there is no path-traversal exposure despite the downstream function's own lack of a redundant check.",
+    "files": {
+      "src/validation/RegionValidator.js": {
+        "before": "const ALLOWED_REGIONS = ['us-east', 'us-west', 'eu-central'];\n\nfunction isAllowedRegion(region) {\n  return ALLOWED_REGIONS.includes(region);\n}\n\nmodule.exports = { isAllowedRegion };\n"
+      },
+      "src/routes/RegionRoutes.js": {
+        "before": "const fs = require('fs');\nconst path = require('path');\nconst { isAllowedRegion } = require('../validation/RegionValidator');\n\nconst CONFIG_DIR = path.join(__dirname, '../../config/regions');\n\nfunction handleRegionConfig(req, res) {\n  const region = req.query.region;\n  if (!isAllowedRegion(region)) {\n    res.status(400).send('invalid region');\n    return;\n  }\n  const config = loadRegionConfig(region);\n  res.json(config);\n}\n\nfunction loadRegionConfig(region) {\n  const raw = fs.readFileSync(path.join(CONFIG_DIR, region + '.json'), 'utf8');\n  return JSON.parse(raw);\n}\n\nmodule.exports = { handleRegionConfig };\n",
+        "after": "const fs = require('fs');\nconst path = require('path');\nconst { isAllowedRegion } = require('../validation/RegionValidator');\n\nconst CONFIG_DIR = path.join(__dirname, '../../config/regions');\nconst configCache = new Map();\n\nfunction handleRegionConfig(req, res) {\n  const region = req.query.region;\n  if (!isAllowedRegion(region)) {\n    res.status(400).send('invalid region');\n    return;\n  }\n  const config = loadRegionConfig(region);\n  res.json(config);\n}\n\nfunction loadRegionConfig(region) {\n  if (configCache.has(region)) {\n    return configCache.get(region);\n  }\n  const raw = fs.readFileSync(path.join(CONFIG_DIR, region + '.json'), 'utf8');\n  const parsed = JSON.parse(raw);\n  configCache.set(region, parsed);\n  return parsed;\n}\n\nmodule.exports = { handleRegionConfig };\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_not_flag": [
+      {
+        "root_cause_key_like": "security",
+        "file": "src/routes/RegionRoutes.js"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "loadRegionConfig in src/routes/RegionRoutes.js builds a filesystem path with path.join(CONFIG_DIR, region + '.json') and performs no region re-validation of its own. However, its only caller, handleRegionConfig, unconditionally calls isAllowedRegion(region) (defined in the unchanged src/validation/RegionValidator.js, present identically before and after this diff) and returns 400 before loadRegionConfig is ever invoked; isAllowedRegion checks membership in a fixed 3-value allowlist (['us-east','us-west','eu-central']) containing no '..' or path separators, so region can never be attacker-controlled when it reaches loadRegionConfig. This is a cited, sufficient first layer \u2014 the missing second check inside loadRegionConfig is a defense-in-depth gap, not an exploitable path-traversal or missing-validation vulnerability. PASS if the report does NOT flag loadRegionConfig (or the new configCache) as missing input validation / path traversal / missing sanitization / injection at \ud83d\udd34 CRITICAL or \ud83d\udfe0 IMPORTANT. A \ud83d\udd35 SUGGESTED hardening note (e.g. 'loadRegionConfig could re-validate region independently for defense-in-depth', or an unrelated note about configCache being a plain Map) is acceptable and does not cause a FAIL. FAIL if the report rates the missing revalidation in loadRegionConfig, or the region-derived file path there, as CRITICAL or IMPORTANT, or claims path traversal / arbitrary file read is reachable through this handler."
+  },
+  "expected_behavior": [
+    "No CRITICAL/IMPORTANT path-traversal or missing-validation finding against loadRegionConfig",
+    "A \ud83d\udd35 SUGGESTED defense-in-depth note, if present, names the upstream isAllowedRegion() layer that already blocks the attack"
+  ],
+  "expected_not_behavior": [
+    "Does NOT rate the missing second region check in loadRegionConfig as CRITICAL/IMPORTANT",
+    "Does NOT claim path traversal or arbitrary file read is reachable given the upstream allowlist"
+  ]
+}
