@@ -1,354 +1,163 @@
 # /review-all
 
 [![CI](https://github.com/ncoevoet/claude-review-all/actions/workflows/ci.yml/badge.svg)](https://github.com/ncoevoet/claude-review-all/actions/workflows/ci.yml)
-[![version](https://img.shields.io/badge/version-0.10.0-blue)](.claude-plugin/plugin.json)
+[![version](https://img.shields.io/badge/version-0.10.2-blue)](.claude-plugin/plugin.json)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)](https://code.claude.com/docs/en/plugins)
 
-Project-agnostic code review for [Claude Code](https://code.claude.com/docs/en/overview). One slash command runs deterministic gates, ten parallel review agents, and an adversarial verification pass. Every finding cites `file:line` and is independently re-checked before the report — false positives stay out.
-
-## Demo
+Multi-agent code review for [Claude Code](https://code.claude.com/docs/en/overview), for any language or stack. It runs the repo's own typecheck/lint/tests, has up to ten review agents read the diff in parallel, then has a separate verifier re-check every finding before it reaches the report.
 
 ![/review-all report](docs/demo.png)
 
-One verdict line up top, automated gate results, then findings by severity — Critical/Important carry full anatomy (impact · suggested fix · evidence), Debt/Suggested collapse to one line each. Every finding cites `file:line` and is independently re-verified before it reaches the report.
-
-## Severity tiers
-
-- **🔴 CRITICAL** — Breaks functionality, exposes data, crashes systems, violates requirements
-- **🟠 IMPORTANT** — Missing error handling, unhandled edge cases, potential bugs
-- **🟡 DEBT** — Code duplication, convention violations, refactoring needed within 6 months
-- **🔵 SUGGESTED** — Measurable improvements only. If you can't measure the improvement, don't suggest it.
-- **⚪ QUESTION** — Items requiring human judgment about requirements or intent
-
 ## Install
-
-### Plugin (recommended)
-
-Inside Claude Code, add the marketplace and install the plugin:
 
 ```
 /plugin marketplace add ncoevoet/claude-review-all
 /plugin install review-all@ncoevoet-review-all
 ```
 
-`/review-all` is available right away. Update later with `/plugin update review-all@ncoevoet-review-all`, remove with `/plugin uninstall review-all@ncoevoet-review-all`. CLI equivalents work too: `claude plugin marketplace add ncoevoet/claude-review-all` then `claude plugin install review-all@ncoevoet-review-all`. The plugin bundles the skill's `scripts/` and resolves them relative to the skill, so it works wherever Claude Code installs it.
+Or, to hack on the skill: `git clone` this repo and run `make install`, which copies `skills/review-all/` to `~/.claude/skills/review-all/` (`make uninstall` removes it).
 
-### Manual (`make install`)
-
-For hacking on the skill itself, copy it straight into `~/.claude/skills/`:
-
-```bash
-git clone https://github.com/ncoevoet/claude-review-all.git
-cd claude-review-all
-make install   # copies skills/review-all/ → ~/.claude/skills/review-all/
-```
-
-`make uninstall` removes it. `make review-self` installs then reminds you to run `/review-all` in this repo. The skill works in Claude Code only — it depends on filesystem access and bash.
+Requires Claude Code, `git`, `bash`, `python3`. `gh` is optional: it is used for `PR #N` targets and for the post-to-PR / create-issue actions.
 
 ## Use
 
-Inside Claude Code, run `/review-all` with any of these targets:
-
 | Argument | Reviews |
 |---|---|
-| _(empty)_ | Uncommitted changes if any, else current branch vs default branch, else last commit |
-| `--staged` | Only staged changes |
-| `--unstaged` | Only unstaged changes |
-| `last commit` | `HEAD~1..HEAD` |
-| `last N commits` | `HEAD~N..HEAD` |
+| _(empty)_ | Uncommitted changes, else current branch vs default branch, else last commit |
+| `--staged` / `--unstaged` | Only staged / unstaged changes |
+| `last commit`, `last N commits` | `HEAD~N..HEAD` |
 | `vs <branch>` | Current branch vs merge-base with `<branch>` |
-| `<sha1>..<sha2>` | A specific commit range |
-| `PR #N` or `#N` | A GitHub PR (requires `gh`) |
-| _file paths_ | Restrict review to those files |
-| `--paths a/b,c/d` | Filter resolved diff to these path prefixes |
-| `--exclude x,y` | Drop these path prefixes from the resolved diff |
-| `gate` / `--ci` | **Headless gate mode** — full review, then a machine verdict (`gate-verdict.json` + exit code) with no Phase 4 menu; composes with any target (`gate --staged`, `gate PR #N`) |
-
-Examples:
+| `<sha1>..<sha2>` | A commit range |
+| `PR #N` or `#N` | A GitHub PR (needs `gh`) |
+| _file paths_, `--paths a,b`, `--exclude x,y` | Narrow the diff to / away from these paths |
+| `gate` / `--ci` | Headless mode: JSON verdict and exit code, no menu (see [Gate mode](#gate-mode-ci)) |
 
 ```
 /review-all
-/review-all --staged
 /review-all PR #123
-/review-all last 3 commits
-/review-all vs main
-/review-all src/auth/login.ts src/auth/session.ts
-/review-all PR #42 --exclude apps/legacy
-/review-all gate --severity critical
+/review-all vs main --exclude apps/legacy
+/review-all gate --severity important
 ```
 
-## How it works — exact steps
+## How it works
 
-### Phase 0 — Project discovery
+1. **Discover.** One script (`scripts/discover.sh`) detects the toolchain, test layout and available tools. Rules extracted from `CLAUDE.md` are cached; toolchain data is re-probed every run.
+2. **Deterministic gates.** Typecheck, lint and scoped tests run in parallel. New public code without a test is flagged. A failing gate becomes a finding directly, and its output is passed to the agents as a `<gate_results>` block.
+3. **Select files and agents.** `select-files.py` drops binaries, secrets, generated/vendor output and oversized files before any agent runs. `select-agents.py` picks the axes: six always run; security deep-dive, test-quality, API-contract and a11y/i18n run only when the diff contains matching files. Skipped axes are named in the report.
+4. **Review in parallel.** Axes: standards, bugs+security, DRY, consistency, simplification, security deep-dive, performance, test quality, API contract, a11y/i18n. Every spawn names its model: `opus` for behavioral axes (bugs, security, performance, API contract) and `sonnet` for the others. Each agent gets the diff in its own file order (`agent-order.py`), plus per-language rule packs from `rules/`. Completed axes are saved to `.claude/review-all/checkpoints/`, so an interrupted run picks up where it stopped.
+5. **Dedupe and verify.** Findings are grouped by root cause (the report says "Flagged independently by N agents"). Then a verifier (Haiku by default) tries to disprove each one: a behavior claim has to be backed by a quoted source line. Findings scoring ≥75 go in the report, 50–74 in the appendix, and the rest are dropped.
+6. **Claim classes.** A runtime, data or rendering claim that is backed only by reading the source gets the `unverified` verdict. It is shown in its own section with the observation that would settle it, and it never blocks a gate.
+7. **Report.** It opens with a verdict line, then gate results with a **Provenance** column (command, exit code, time), then findings by severity. It ends with a machine-readable `<!-- review-all-severity: {…} -->` tally.
+8. **Menu.** Fix by scope, Triage one-by-one, More actions (export JSON/SARIF, generate tests, ticket, post to PR, …), or done. After a fix, the changed files get a delta review.
 
-| Step | What it does | Why |
-|---|---|---|
-| 0.0 Discovery (one call) | Runs `scripts/discover.sh` — composes the preflight tool probe (`git`/`timeout`/`lsof`/`ss`/`gh`/`jq`/`curl`/`rsync`/`python3`), toolchain detection, test-pattern detection, `.codegraph/` check, and the rules-cache verdict in a SINGLE script call | Phase 0 costs one round trip regardless of cache state; later phases degrade instead of crashing on a missing tool |
-| 0.1 Resolve target | Parses `$ARGUMENTS` against the table above | Single source of truth for "what diff is being reviewed" |
-| 0.2 Load config + rules cache | Reads `.claude/review-all.json`; on cache HIT reuses the LLM-extracted global rules from `.claude/cache/review-all-profile.json` | Only the expensive LLM work (rules extraction) is cached — toolchain commands are re-probed fresh every run, so a `package.json`/`pom.xml` change can never be served stale |
-| 0.3 + 0.4 Toolchain | Folded into 0.0 — `detect-toolchain.sh` emits `{ecosystem, framework, test, lint, typecheck, build}` | Project-agnostic gate commands; never assumes Angular vs Spring vs Rust |
-| 0.5 Project rules | Reads root + nested CLAUDE.md files; the global half is skipped on cache HIT, module-level CLAUDE.md (changed dirs) always read fresh. Also reads repo-root `REVIEW.md` when present (never cached) | "NEVER do X / ALWAYS do Y" steer the agents; `REVIEW.md` overrides what gets flagged and at what severity |
-| 0.6 Test patterns | Folded into 0.0 — `test-pattern-probe.sh` infers location, suffix, framework | Spec Existence Check uses this; no hardcoded `__tests__` assumption |
-| 0.7 CodeGraph + MCP | Probes the live MCP tool registry (skipped entirely when 0.0 found no `.codegraph/`); records `toolchain.codegraphTools` keyed by capability | Tool names are not hardcoded — survives MCP-server renames |
-| 0.8 Gather diff + select | Computes diff + per-file slice, applies `--paths`/`--exclude`, then runs `scripts/select-files.py` — a pure function that drops binary files, secret paths, generated/vendor/lock output and any single file over `maxFileDiffBytes`, and tags every survivor with its file classes | Filtering is enforced before any agent sees the diff, and it is a computation rather than a judgment — a dry run and the real run consume one answer |
-| 0.9 Output dirs + cache write | Creates `.claude/cache`, `.claude/reports`, `.claude/review-all`; on cache MISS writes the v2 rules profile | First run on a fresh repo never crashes on a missing dir |
+Findings dismissed as `wontfix` or rejected by the verifier are stored in `.claude/review-all/state.json`. Later runs pass them to the agents as a `<previously_dismissed>` digest so they are not raised again. Details for each phase: `skills/review-all/references/`.
 
-The rules cache is keyed on a manifest of per-file content hashes over every repo `CLAUDE.md` (+ root `CLAUDE.local.md`), carries a schema version, and expires after 7 days — a branch switch, a CLAUDE.md edit, or a legacy cache file all force a fresh extraction. The report's gate table shows `Profile cache: HIT / MISS(reason)` so cache behavior is always visible (and eval-gradeable).
+**Severity:** 🔴 CRITICAL (breaks behavior, leaks data) · 🟠 IMPORTANT (missing error handling, likely bug) · 🟡 DEBT (duplication, convention drift) · 🔵 SUGGESTED (measurable improvement only) · ⚪ QUESTION (needs human judgment).
 
-### Phase 1 — Deterministic gates (in parallel)
+## Gate mode (CI)
 
-| Gate | Command | Why |
-|---|---|---|
-| Typecheck | `timeout 120 <discovered>` | Compilers find what review can't |
-| Lint | `timeout 120 <discovered>` | Style + simple bugs at zero token cost |
-| Tests | `timeout 180 <scoped>` | Smart scoping: tests that import changed files first, fallback to package, fallback to suite |
-| Dev-server probe | `scripts/dev-server-probe.sh` | If dev server is up, **skip** the build gate — it's already running |
-| Spec existence | per new file vs `toolchain.testPattern` | New public code without tests is automatically 🔴 |
-| Dependency check | per manifest diff | New deps / major bumps / removed deps surface explicitly |
-
-Gate-confirmed findings are tagged `VERIFIED` and skip the verification phase. They are real, by definition.
-
-When a gate **fails**, its output is also handed to every agent and to the verifier as a `<gate_results>` block (failures only, truncated) — a compiler or test runner is ground truth no amount of reading matches, which is why hybrid static-analysis + LLM review outperforms either alone. Agents treat it as a lead to the underlying defect, never as a finding to restate: the failure is already on the report.
-
-### Phase 1.5 — Runtime probe (optional, self-skipping)
-
-If a UI file changed AND a dev-server port is open AND `curl` exists:
-
-1. Health-check each port (3× with 2s backoff to absorb dev-server warm-up).
-2. If Playwright/Puppeteer is installed and a baseline screenshot exists, headless-screenshot the changed routes and pixel-diff against baseline.
-
-Catches dead routes and visual regressions that static review cannot.
-
-### Phase 2 — Parallel agents
-
-Up to ten specialized agents review the (filtered) diff slice in parallel, each on its own concern:
-
-`standards · bugs+security · DRY · consistency · simplification · security-deep-dive · performance · test-quality · API-contract · a11y/i18n`
-
-Agents share `_shared.md` (severity tiers, 3-question gate, quotas, auto-drop rules, codegraph-tool resolution).
-
-**Only the agents the diff needs are spawned.** `scripts/select-agents.py` turns Step 0.8's file classes into the spawn set: six axes always run, and security-deep-dive, test-quality, API-contract and a11y/i18n run only when the diff actually holds a file of class `security`, `test`, `contract`, or `ui`/`i18n`. A backend-only Go diff spawns six agents, not ten. Each conditional axis also receives only its own files as its slice. The report names every skipped axis with the reason it was skipped, so an absent agent never reads as a failed one.
-
-This used to be prose inside the personas (`Only spawn this agent if …`), which can only take effect *after* the agent is running — a measured 73 545-character floor of persona text paid to be told there was nothing to review. The persona lines survive as a fallback for a hand-spawned agent; the gate is the script.
-
-**Per-language rule packs.** Each agent also receives a `<language_rules>` block: a short checklist of the defects — and the *false positives* — that the languages in its slice specifically invite (`rules/<lang>.md`). It is injected once per language present, never once per file, so a Java-only diff never pays for the TypeScript pack. Set `languageRules: false` to turn it off. Every pack ends with a mandatory `#### Do not report` section; that negative half is the point, and `tests/check-rule-packs.sh` enforces it.
-
-**Every spawn names its model, per axis.** The axes whose findings are claims about *behavior* — bugs+security, security-deep-dive, performance, API-contract — run on `opus`; the axes that match code against a *known shape* — standards, DRY, consistency, simplification, test-quality, a11y/i18n — run on `sonnet`. The tier is declared in each persona's frontmatter (`model:`), so it travels with the persona; an omitted model would silently inherit the session's tier and put mechanical axes on the expensive one. Precision does not depend on the tier: every finding still faces the hostile verifier, so a weaker axis over-flagging costs a verifier call, not a false positive. The rule is not limited to the axes — the Phase 4 follow-up agents name a tier too (Deep-dive `opus`, Ask-a-question and the test generator `sonnet`), so no spawn in the skill inherits a tier by accident.
-
-**Completed axes are checkpointed** to `.claude/review-all/checkpoints/<axis>.json` and resumed on a re-run, so an interrupted review (session cut, cancelled CI job) does not re-pay for the agents that already returned. The key is deliberately all-or-nothing — sha256 over the reviewed HEAD, the exact diff bytes, `SKILL.md` + every persona, and `REVIEW.md` + `.claude/review-all.json` — so any change to the code, the scope, or the reviewer definitions discards every checkpoint. Only complete returns are saved (a timed-out axis re-runs), findings are stored pre-verification, and the report names each resumed axis. Delete the directory to force a full re-run.
-
-Each agent receives the same diff **in a different file order** (`scripts/agent-order.py`, a reproducible sha256-derived permutation per agent). Attention isn't uniform across a long prompt, so identical ordering would give all ten agents the same weak middle; permuting decorrelates that at zero token cost. Hunks within a file are never reordered, and chunk membership is computed on the canonical order first, so it stays identical across agents.
-
-Big diffs are auto-chunked (`chunkMaxFiles=40`, `chunkMaxBytes=200000`) and re-merged by `root_cause_key`.
-
-### Phase 2.5 — Dedupe → adversarial verify
-
-1. **Dedupe** via `scripts/dedupe.py`: groups by `root_cause_key`, annotates `confirmed_by` and `corroborating_agents` (how many personas independently reached this root cause — the verifier uses it to prioritize re-read effort and break borderline ties, never as a substitute for verification, and the report surfaces it as "Flagged independently by N agents"), applies global caps (SUGGESTED ≤ 10, QUESTION ≤ 8).
-2. **Verify** in parallel — one verifier per source agent, spawned at `verifierModel` tier (default Haiku — cheap, fast, JSON-bound). Verifier stance is **hostile to the finding, not the code**: assume every finding is wrong until disproven. Its primary gate is a **citation check** — a behavior claim must be provable from a quoted source line, not inferred from naming; ungrounded claims are dropped (or kept only as a ⚪ question). Top severity (🔴/🟠) must be earned by that proof.
-3. Score: `≥75` → main report, `50–74` → appendix, `<50` → silently dropped.
-4. **Claim class** — every finding is classified `static` / `runtime` / `data` / `rendering`, and must hold the proof its class demands. Reading a template proves what the template says; it proves nothing about what the server returned or what the user saw. A runtime/data/rendering claim backed only by a source read gets the `unverified` verdict — orthogonal to the score, so even a well-argued one lands there. It is neither asserted as fact nor dropped: it surfaces in the report's 🔬 section naming the exact observation that would settle it, and it never blocks gate mode.
-5. **State sweep** via `scripts/state-sweep.py`: applies `fixed`/`stale`/`snoozed`/`wontfix`/`rejected` transitions to `.claude/review-all/state.json`. A verifier `drop` is remembered as `rejected`, so the next run neither re-derives nor re-verifies a finding already refuted on identical code — but a machine rejection is a *score*, not a decision, so it is invalidated by a code change at the location, by a `verifier.md` version bump, and never suppresses a 🔴 CRITICAL. A human `wontfix` has no such carve-out.
-
-### Phase 2.75 — Completion gate
-
-Every spawned agent and every verifier must have returned with valid JSON, or be explicitly retried once, or be surfaced as `⚠️ PARTIAL REVIEW` in the report. No silent drops.
-
-### Phase 3 — Unified report
-
-Opens with a one-line **Verdict** (`N must-fix before merge`, or ✅ none) for instant triage, then: Intent · Summary · Gate Results · 🔴 Critical · 🟠 Important · 🟡 Debt · 🔵 Suggested · ⚪ Questions · 🔬 Unverified · Dependency Changes · Appendix · **Scope footer** (files reviewed / skipped). The Gate Results table carries a mandatory **Provenance** column — the exact command, its exit code, and when it ran — because a gate with no provenance may not be rendered `PASS`; that is what separates a build that happened from one that was assumed. 🔴/🟠 get full anatomy (failure-mode title, `[severity · confidence]` tag, one-sentence impact, suggested fix, ≤8-line evidence); 🟡/🔵/⚪ collapse to one line each. The Summary also reports a **Merge-readiness %** (a transparent resolved/total must-fix ratio that climbs as fixes apply) and **change-type buckets** (files Added/Modified/Deleted/Renamed). The last line is a machine-readable `<!-- review-all-severity: {…} -->` comment for CI parsing (`scripts/severity-tally.py` recovers the counts, and names which source it used, from a report that dropped it); the Phase 4 **Export findings** action additionally emits `review-<ts>.json` + `review-<ts>.sarif` for CI gates.
-
-Heartbeat lines print at each phase boundary so the user sees forward motion on long runs.
-
-### Phase 4 — Post-report menu
-
-Presenting the menu is a **mandatory closing step** — a finished report is the *start* of Phase 4, not the end of the turn (skipped only when every section says "None found." with no appendix). Ordering is a hard rule: the full report renders as text first, then the menu immediately after it with zero tool calls in between — so the menu can never appear before (or without) the report — and the menu's question line repeats the verdict summary in case the report has scrolled off-screen. The primary menu (`AskUserQuestion`, single-select, ≤4 options) offers four **modes**:
-
-- **Fix by scope…** — apply by severity scope (critical / +important / +debt) or a **Custom** expression mixing severity letters and finding IDs/ranges (e.g. `I D #11`, `1-7, 11`).
-- **Triage one-by-one** — walk each must-fix finding with a per-finding micro-menu (Fix · Ask · Create ticket · Snooze · Wontfix · Skip).
-- **More actions…** (multi-select) — Save full report · **Ask a follow-up question** · **Generate tests** · **Create a ticket/issue** · **Export findings (JSON + SARIF)** · Deep-dive · Generate fix patches · Draft commit/PR · Post to GitHub PR · Snooze · Wontfix · Schedule re-review · Re-run on fixed code.
-- **Skip / done.**
-
-The two fix modes appear only when fixable findings exist; otherwise the menu leads with **More actions…** so the non-fix choices stay reachable (this is the fix that restored discoverability). After a clean apply-fixes (all post-fix gates pass), an **auto-delta** scoped review runs against the just-edited files and appends a `## Post-fix delta` section.
-
-### Gate mode — headless verdict (CI / autonomous loops)
-
-`/review-all gate` (or any target with `--ci`) runs Phases 0–2.75 unchanged, then **replaces the Phase 3 report and Phase 4 menu with a machine-readable verdict** — no prose, no `AskUserQuestion`. It writes `.claude/review-all/gate-verdict.json`, prints the same JSON, and exits `0` (pass) / `1` (blocked) / `2` (malformed):
+`/review-all gate` runs the same review but replaces the report and menu with `.claude/review-all/gate-verdict.json`. Exit codes: `0` pass, `1` blocked, `2` malformed.
 
 ```json
 { "pass": false, "severityFloor": "critical", "partial": false, "blockingCount": 1,
   "blocking": [ {"id": "F3", "severity": "CRITICAL", "file": "src/x.ts", "line": 42, "title": "unguarded null deref"} ] }
 ```
 
-A finding blocks only when its severity meets the floor (`gateSeverityFloor`, default `critical` → 🔴 only; `--severity important` → 🔴+🟠). Only main-report findings (verdict `keep`, score ≥ 75) gate — the appendix never blocks, and neither does an `unverified` finding at any score, since nobody observed the behaviour it claims. Partial review coverage **fails closed**. This is what lets a CI step or an autonomous loop (e.g. the `goal-loop` plugin's oracle) consume review-all as a hard gate. See `skills/review-all/references/phase-gate.md`.
+By default only 🔴 findings block; `--severity important` makes 🟠 block too. Appendix and `unverified` findings never block. If any agent fails to return, the gate fails. See `references/phase-gate.md`.
 
-## How it's tested & improved
+## Use as a commit gate
 
-Every change to this skill is **eval-driven** — the same develop-tests loop Anthropic recommends for agent harnesses:
+The [workflow-kit](https://github.com/ncoevoet/claude-workflow-kit) plugin's `commit-gate-guard` skill uses review-all for a cheap check before each commit. It does not run `/review-all`. It spawns **one** `opus` agent and gives it this repo's **bugs+security persona** (`agents/02-bugs-security.md`) plus `agents/_shared.md`, with these inputs:
 
-- **98 labeled scenarios** (`skills/review-all/evals/*.json`) across Java, TypeScript, Python, SQL, Go, and Rust. Most are *recall* cases (a planted real bug the review must catch: races, leaks, injections, N+1s, broken contracts…); a growing set are **precision counter-cases** — correct code that looks suspicious (an intentional `except Exception` boundary, a consistent lock discipline, a neutralized CSV export, a TODO comment, a user deleting their **own** record, a `JSON.parse` crash that is not code execution, a second layer missing behind a sufficient first one) that must **NOT** become a finding. The last three were written to show that explicit severity-inflation rules were needed; the baseline passed all three, the rules were dropped, and the cases stayed as regression guards — `evals/README.md` records that result. Two cases exercise gate mode end-to-end; two guard the profile cache (a poisoned legacy cache must MISS, a valid warm cache must HIT *and* still apply its rules); two cover the repo-convention files (a `REVIEW.md` that must raise one finding's severity and suppress another in the same review, and a `CLAUDE.md` claim the diff falsifies alongside a neighbouring claim that stays true); and one carries a **runnable toolchain whose test gate genuinely fails**, so the failing-gate path is exercised end-to-end rather than assumed. One seeds a prior `rejected` verdict via `fixture.seed_state_file`. The two convention cases were rewritten after their first A/B revealed the originals passed on the pre-feature baseline too — `evals/README.md` records that finding and the rule it produced: a case proves nothing until the baseline arm has been shown to fail it.
-- **Headless LLM-graded runner** (`scripts/run-evals-headless.sh`): each fixture is materialized into a throwaway git repo, `/review-all` runs there via `claude -p`, and a second LLM call grades the report against the case's rubric. Single runs flicker (LLM output is non-deterministic), so trustworthy baselines use `REVIEW_ALL_EVAL_RUNS=3+` and compare pass-*rates*. Set `REVIEW_ALL_EVAL_MODEL` on any run whose numbers will be compared against another run: left unset, both the review and the judge execute at whatever tier the CLI defaults to, so the measurement carries an unrecorded variable and the delta cannot be attributed. Every run prints a leading `CONFIG,…` line recording model, effort, runs, timeout and config JSON, so the tier travels with the numbers.
-- **A/B before shipping**: persona or verifier edits are measured against the relevant eval subset with and without the change — a change that doesn't move recall without hurting precision is reverted. `scripts/eval-scorecard.py` turns the runner's per-case `RESULT`/`SCORE` lines into a suite-level **recall % / precision % / F1 / SNR** scorecard, so an A/B diffs an aggregate precision number, not just per-case PASS rates (the SNR is an honest suite-derived proxy, not a CR-Bench per-comment metric).
-- **No-API CI gates** on every push (`tests/run.sh`): anonymization check (no real project names in fixtures), eval-schema validation, shellcheck on all scripts, Python unit tests, and a static doc-invariant gate per instruction-only feature — the Phase 4 menu, verifier votes, the dismissed digest, claim classes, `REVIEW.md`, diff ordering, and `<gate_results>` (`tests/check-*.sh`). Instructions can't be exercised headlessly, so their load-bearing sentences are grepped from the published docs instead, and each gate is proven non-vacuous by deleting the sentence on a scratch copy and confirming it fails. `tests/check-config-sync.sh` goes further and set-diffs SKILL.md's config schema against the documented key table, so that pair cannot drift again.
-- **Every real-world escape becomes a case**: a missed bug or a false positive observed in actual use is converted into a new eval before the fix lands, so it can never regress silently.
+- the diff since the last commit that passed the gate, not only the staged changes;
+- one sentence on what the change is meant to guarantee;
+- for boolean guards or precedence chains, a request for a truth table over all inputs.
 
-See `skills/review-all/evals/README.md` for the schema, the full scenario list, and the iteration loop.
+Why this persona: bugs+security is the axis that looks for behavioral defects, and `_shared.md` brings the severity gate and the claim-class cap along with it, so the single pass follows the same evidence rules as a full review. It skips the other nine axes, the verifier, the report and the menu. The commit is blocked on any 🔴/🟠 finding. When review-all is not installed, the gate falls back to a short inline brief.
 
-## Pros / Cons
+This couples the two plugins: **an edit to `02-bugs-security.md` or `_shared.md` also changes every repo's commit gate.**
 
-| Pros | Cons |
-|---|---|
-| **No false positives by design** — every finding survives adversarial re-read | Two-pass model (agents + verifier) costs more tokens than a single-shot review |
-| **Project-agnostic** — discovers conventions from the repo, never assumes them | Discovery probes run on every review (one script call, ~1s); only the CLAUDE.md rules extraction is cached — by design, so toolchain data is never stale |
-| **Filtered scope** — `--paths`/`--exclude` and interactive workspace pruning honor the user's actual focus | The multi-workspace prompt only fires above 50 files / multiple roots — adjust expectations on small repos |
-| **Deterministic ops in scripts** — preflight, toolchain, test-pattern, dev-server, dedupe, state-sweep, checkpoint all live in `scripts/`. Reliability + token savings + auditable | Requires bash + Python 3 on the developer machine (default on macOS/Linux; fine in WSL) |
-| **Hostile verifier on Haiku** — cheap, fast, no confirmation bias | Verifier mis-scoring on truly novel patterns can hide a real finding in the appendix — escape via `verifierModel: "sonnet"`, or `verifierVotes: 3` to majority-vote 🔴/🟠 across independent passes |
-| **Machine dismissals are remembered** — a verifier `drop` is stored as `rejected` and skipped next run on identical code, saving both the agent's re-derivation and the verifier call | A stored score is weaker evidence than a human decision, so it is bounded three ways (code change, verifier-version bump, never suppresses 🔴) — which also means it stops saving anything the moment the verifier persona changes. The saving itself is **unmeasured**: it is spend avoided before a report is written, and the eval harness grades reports |
-| **Lifecycle-aware** — snoozed/wontfix/stale tracked in `state.json`; dismissed findings are fed back to the agents as a `<previously_dismissed>` digest so the team's own wontfix decisions aren't re-derived; recurring findings auto-escalate after 3 sightings | State file is per-repo; not shared across team members. Intentional — comments are the team-wide channel |
-| **Plugin-free install** — `make install` and you're done | Not portable to claude.ai uploads or the Claude API runtime (uses git/gh/bash/filesystem). Claude Code only |
+| | `/review-all gate` | `commit-gate-guard` |
+|---|---|---|
+| Scope | Full review, all selected axes | Delta since last passing commit |
+| Agents | Up to 10 + verifier | 1, no verifier |
+| When | CI, autonomous loops | Every `git commit` |
 
-## Review instructions (`REVIEW.md`)
+## How it was built
 
-Drop a `REVIEW.md` at the repository root to change what this review flags, at what severity, and where. It is read fresh on every run (never cached) and injected **verbatim** into all ten agents and the verifier as the highest-priority instruction block — where it conflicts with a persona or with the shared rules, `REVIEW.md` wins. No configuration key is involved: the file is the interface.
+The skill grew out of several years of daily use of Claude for code review on real work projects. The rules in the personas and in `_shared.md` mostly come from specific failures: a missed bug or a false positive seen in real use, turned into a rule, and since this repo was published (May 2026), turned into an eval case before the fix lands. The commit history since then shows that eval-driven phase, including the changes that were reverted.
+
+## How it's tested
+
+**Eval suite.** There are 98 labeled cases in `skills/review-all/evals/`: 44 TypeScript, 20 Java, 11 Python, 5 Go, 4 SQL, 4 Rust. Most are recall cases, where a planted bug (race, leak, injection, N+1, broken contract…) must be reported. The rest are precision cases, where correct code that looks suspicious must not be flagged. Some cases cover gate mode, the rules cache, `REVIEW.md`, a toolchain whose tests really fail, and dismissal state that carries across runs.
+
+**Runner.** `scripts/run-evals-headless.sh` builds each fixture into a throwaway git repo and runs `/review-all` there with `claude -p`. A second LLM call then grades the report against the case's rubric. `eval-scorecard.py` adds up recall, precision and F1. Runs use `REVIEW_ALL_EVAL_RUNS=3` or more and compare pass rates, because a single run is noisy. `REVIEW_ALL_EVAL_MODEL` pins the model so two runs can be compared.
+
+**A/B before shipping.** A change to a persona or the verifier is run on the relevant cases with and without the change. If it gives no gain, it is reverted. A case only counts as evidence if the version without the change actually fails it. This rule has led to reverting shipped-looking work: a doc-staleness rule and a set of severity-inflation rules were dropped because the baseline already passed their cases.
+
+**Known limits.**
+- The grader is an LLM.
+- At N=3, a 2/3 result cannot be told apart from 3/3. Cases `01` and `02` vary too much on identical code to use for A/B.
+- Some features shipped **unmeasured**: per-agent diff ordering, remembering verifier rejections, and the v0.10.2 observation rule. [`evals/README.md`](skills/review-all/evals/README.md) and the release commits say which, and why.
+- Savings from skipping work (fewer agent or verifier calls) do not show up in the report, so a report-grading harness cannot measure them.
+
+**CI without an API key** (`bash tests/run.sh`, on every push):
+- a check that no real project names appear in fixtures;
+- eval schema validation;
+- shellcheck;
+- 13 Python unit-test files;
+- 14 `tests/check-*.sh` doc gates.
+
+Behavior that exists only as instructions cannot be run headlessly, so each doc gate greps the docs for the key sentence. Each gate was checked by deleting that sentence on a scratch copy and confirming the gate fails.
+
+## Review instructions
+
+A `REVIEW.md` at the repo root changes what gets flagged, and at what severity. It is read on every run (never cached) and injected as the top-priority block into every agent and the verifier.
 
 ```markdown
-# Review instructions
-
-## What CRITICAL means here
-
-Reserve 🔴 for findings that break behavior, leak data, or block a rollback:
-incorrect logic, unscoped queries, PII in logs, non-backward-compatible
-migrations. Style and naming are 🟡 at most.
-
 ## Raise the bar per path
-
 - In `scripts/`, only report if near-certain and severe.
 - In `src/payments/`, treat any missing error handling as 🔴 CRITICAL.
 
 ## Do not report
-
 - Anything CI already enforces: lint, formatting, type errors
-- Generated files under `src/gen/` and any `*.lock` file
-
-## Always check
-
-- New API routes have an integration test
-- Database queries are scoped to the caller's tenant
 ```
 
-Notes:
+- **Verbatim means verbatim.** The file is never summarized, and `@`-imports are not expanded. Keep it short, since it goes into every prompt (the review warns above 10 KB).
+- It controls what is reviewed, not what counts as proof. A finding it promotes still has to be proven at that severity.
+- In gate mode it can move findings above or below the blocking floor. When `REVIEW.md` itself changes in the diff, the gate summary says so.
 
-- **Verbatim means verbatim** — the file is never summarized or truncated, and `@`-imports are **not** expanded (unlike `CLAUDE.md`). Write the rules you want enforced directly in the file. Keep it focused: a long `REVIEW.md` dilutes the rules that matter, and it is injected into eleven-plus prompts. Soft guideline ≤150 lines; over 10 KB the review warns.
-- **It steers what is reviewed, never how it is proven.** Severity recalibration, skip rules, and per-path bars are honored. The 3-question gate, claim classes, `file:line` evidence, and Phase 2.5 verification are not overridable — a severity `REVIEW.md` promotes still has to be earned by proof at that tier.
-- **In gate mode it moves findings across the blocking floor in both directions** — a promotion to 🔴 becomes CI-blocking under the default floor, and a demotion can un-block a real defect. Same trust model as `CLAUDE.md`: text committed to the repo is authoritative. When `REVIEW.md` is itself modified in the reviewed diff, the gate summary says so.
+## Configuration
 
-## Optional configuration
-
-Drop a `.claude/review-all.json` into any project to tune behavior. All keys optional; documented defaults apply when absent. See `skills/review-all/references/config-keys.md` for the full table with per-key rationales.
-
-Common keys:
+`.claude/review-all.json` is optional, and every key has a default. `/review-all init` walks you through creating it.
 
 ```json
-{
-  "devServerPorts": [4200, 5173, 3000],
-  "verifierModel": "haiku",
-  "verifierVotes": 1,
-  "extraAgents": [],
-  "skipAgents": []
-}
+{ "verifierModel": "haiku", "verifierVotes": 1, "skipAgents": [], "extraAgents": [],
+  "quotaDebt": 5, "quotaSuggested": 3, "suggestedGlobalCap": 10, "maxFileDiffBytes": 160000 }
 ```
 
-### What gets excluded before any agent runs
+- `verifierVotes: 3` has three verifier passes vote on 🔴/🟠 findings.
+- Set the quota and cap keys to `0` to get every verified finding (🔴/🟠 are never capped).
+- File exclusion patterns are in `scripts/file-classes.json`. Test files, `.md` and deleted files are always reviewed.
+- Full key table: `references/config-keys.md`.
 
-Step 0.8 drops files from the review deterministically, before a single agent is spawned. The patterns live in `skills/review-all/scripts/file-classes.json`:
+If the repo has a `.codegraph/` index and a CodeGraph MCP server is connected, agents use it for callers and impact analysis. Otherwise they use `git grep`.
 
-| Reason | What it covers |
-|---|---|
-| `binary` | any file git reports as binary |
-| `secret` | `.env*`, `id_rsa*`, `.npmrc`, `credentials*`, `*.pem`, `*.p12` — checked **ahead of** `--paths`/`--exclude`, so no include can admit a credential |
-| `user_rule` | your own `--exclude` prefixes |
-| `generated` | lockfiles, `dist/`, `build/`, `vendor/`, `node_modules/`, `*.min.*`, `*.pb.go`, `*_pb2.py`, `*.generated.*`, `__snapshots__/`, `*.snap` |
-| `too_large` | a single file whose diff exceeds `maxFileDiffBytes` (default `160000`) |
+## Limits
 
-Three exclusions this skill deliberately does **not** make, against the grain of comparable tools: **test files are classified, never dropped** — they are the whole subject of the test-quality agent; **`.md` is reviewable**, because documentation that contradicts the diff is a finding worth having; and **deleted files stay reviewable**, because a deletion whose consumer is unchanged is a diff made of nothing but the deletion, and dropping it hides the breakage instead of saving tokens. `tests/check-agent-selection.sh` fails the build if a test or Markdown pattern ever gets added to the exclude list.
-
-Every excluded file is counted in the report by reason, and over five of them are listed by path. Nothing is dropped silently.
-
-`maxFileDiffBytes` (default `160000`, `0` disables) and `languageRules` (default `true`) are the two keys that tune this layer.
-
-`verifierVotes` defaults to `1` (single hostile pass). Set it to an odd `N>1` (e.g. `3`) to majority-vote the 🔴/🟠 findings across `N` independent verifier passes — a finding reaches the main report only if ⌈N/2⌉ verifiers keep it. Voting is scoped to top severity (🟡/🔵/⚪ stay single-pass) and adds verifier cost only when 🔴/🟠 survivors exist; see `references/config-keys.md`.
-
-### Finding-count caps
-
-Two layers trim a report. Both are config-driven — set the relevant keys to `0` for a complete verified list. 🔴 CRITICAL / 🟠 IMPORTANT are never capped at any layer.
-
-| Key | Default | Caps |
-|-----|---------|------|
-| `quotaDebt` | `5` | 🟡 DEBT findings **per agent** (dropped pre-dedupe) |
-| `quotaSuggested` | `3` | 🔵 SUGGESTED findings **per agent** |
-| `quotaQuestion` | `2` | ⚪ QUESTION findings **per agent** |
-| `suggestedGlobalCap` | `10` | 🔵 SUGGESTED findings **globally**, after dedupe |
-| `questionGlobalCap` | `8` | ⚪ QUESTION findings **globally**, after dedupe |
-
-To get every verified finding, zero out both layers for the tier — a per-agent quota drops findings *before* dedupe, so a global cap alone cannot recover them:
-
-```json
-{
-  "quotaDebt": 0,
-  "quotaSuggested": 0,
-  "quotaQuestion": 0,
-  "suggestedGlobalCap": 0,
-  "questionGlobalCap": 0
-}
-```
-
-`/review-all init` walks an interactive wizard that writes a populated config.
-
-## Optional: CodeGraph
-
-If a CodeGraph MCP server is wired into Claude Code and the project has a `.codegraph/` directory, `/review-all` uses its tools for cross-file analysis (callers, callees, impact). Tool names are resolved at runtime, so any MCP namespace works. Without CodeGraph, the relevant agents fall back to `grep` / `git grep`.
-
-## Requirements
-
-- [Claude Code CLI](https://code.claude.com/docs/en/overview)
-- `git`, `bash`, `python3` (defaults on macOS/Linux)
-- `gh` — for `PR #N` review mode, and optionally for the Phase 4 *Post to GitHub PR* (`gh pr comment`) and *Create a ticket/issue* (`gh issue create`) actions; both are write-scoped and confirmation-gated, and Create-ticket falls back to writing an issue-markdown file when `gh`/GitHub isn't present
-
-## Layout
-
-```
-claude-review-all/
-├── skills/review-all/
-│   ├── SKILL.md              # orchestrator entry point
-│   ├── agents/               # 10 persona files + _shared.md + verifier.md
-│   ├── references/           # per-phase rules, config schema, state-file lifecycle
-│   ├── rules/                # per-language rule packs injected as <language_rules>
-│   ├── evals/                # labeled scenarios + success criteria + grader rubrics
-│   └── scripts/              # discover (one-call Phase 0), preflight, detect-toolchain,
-│                             # dev-server-probe, test-pattern-probe, dedupe, state-sweep,
-│                             # gate-verdict, export-findings, validate-evals,
-│                             # materialize-fixture, run-evals, run-evals-headless,
-│                             # eval-scorecard (recall/precision/SNR aggregate),
-│                             # agent-order (per-agent diff permutation),
-│                             # checkpoint (per-axis resume store),
-│                             # select-files + select-agents + file-classes.json
-│                             # (deterministic pre-dispatch selection)
-│                             # code-hash (the one state.json code_hash impl)
-│                             # severity-tally (recovers the per-tier counts)
-├── tests/                    # unit tests + check-anonymization.sh (gitignored blocklist)
-│                             # + one check-*.sh doc gate per instruction-only feature
-└── .github/workflows/ci.yml  # shellcheck + test suite (incl. anonymization + eval-schema gates)
-```
-
-All plain Markdown / shell / Python — read, fork, extend.
+- Costs more tokens than a single-pass review, because both the agents and the verifier run.
+- The Haiku verifier can mis-score a new kind of pattern and push a real finding to the appendix. `verifierModel: "sonnet"` or `verifierVotes: 3` reduce this.
+- `state.json` is per repo and per machine. It is not shared across a team.
+- Claude Code only: it needs git, bash and filesystem access.
 
 ## Development
 
 ```bash
-bash tests/run.sh            # anonymization gate + eval-schema validation + shellcheck-clean shell scripts + Python unit tests (no API key)
+bash tests/run.sh    # no API key needed
 ```
 
-`tests/run.sh` runs four no-API gates: an **anonymization gate** (`tests/check-anonymization.sh` — fails if a real employer/product/ticket name leaks into published artifacts; the real blocklist is gitignored, a placeholder `*.example.txt` ships), **eval-schema validation** (`scripts/validate-evals.py` — every `evals/*.json` must have a non-empty `grader.rubric`, a materializable fixture, and an id matching its filename), the shell-script tests, and the Python unit tests. CI (`.github/workflows/ci.yml`) runs shellcheck + this suite on every push / PR. The eval suite under `skills/review-all/evals/` is materialized into throwaway git repos and LLM-graded headlessly by `scripts/run-evals-headless.sh` (needs the `claude` CLI); see `skills/review-all/evals/README.md`.
+Eval schema, the case list and the iteration loop: [`skills/review-all/evals/README.md`](skills/review-all/evals/README.md).
 
 ## License
 
