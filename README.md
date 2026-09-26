@@ -53,7 +53,13 @@ Requires Claude Code, `git`, `bash`, `python3`. `gh` is optional: it is used for
 
 Findings dismissed as `wontfix` or rejected by the verifier are stored in `.claude/review-all/state.json`. Later runs pass them to the agents as a `<previously_dismissed>` digest so they are not raised again. Details for each phase: `skills/review-all/references/`.
 
-**Severity:** 🔴 CRITICAL (breaks behavior, leaks data) · 🟠 IMPORTANT (missing error handling, likely bug) · 🟡 DEBT (duplication, convention drift) · 🔵 SUGGESTED (measurable improvement only) · ⚪ QUESTION (needs human judgment).
+### Severity tiers
+
+- **🔴 CRITICAL**: breaks functionality, exposes data, crashes, violates a requirement.
+- **🟠 IMPORTANT**: missing error handling, unhandled edge case, likely bug.
+- **🟡 DEBT**: duplication, convention violation, refactor needed soon.
+- **🔵 SUGGESTED**: a measurable improvement only. If it can't be measured, it isn't suggested.
+- **⚪ QUESTION**: needs a human decision about requirements or intent.
 
 ## Gate mode (CI)
 
@@ -110,6 +116,35 @@ The skill grew out of several years of daily use of Claude for code review on re
 - 14 `tests/check-*.sh` doc gates.
 
 Behavior that exists only as instructions cannot be run headlessly, so each doc gate greps the docs for the key sentence. Each gate was checked by deleting that sentence on a scratch copy and confirming the gate fails.
+
+## Project rules
+
+Rules come from four places. Only the first two are read from your repo; the last two live inside the skill.
+
+| Source | Scope | Freshness |
+|---|---|---|
+| Root `CLAUDE.md` (+ files it references, + root `CLAUDE.local.md`) | Whole repo: naming, architecture, "NEVER X / ALWAYS Y" | Rules extracted by an LLM, cached for 7 days, re-extracted when any `CLAUDE.md` changes |
+| `CLAUDE.md` in a changed file's directory | That module only | Read on every run |
+| `REVIEW.md` at the repo root | What to flag and at what severity; wins over everything else | Read on every run, injected verbatim (see below) |
+| Language rule packs (`skills/review-all/rules/`) | Mistakes a language tends to produce, and false positives to avoid | Part of the skill |
+
+`~/.claude/CLAUDE.md` is ignored: it describes you, not the project.
+
+### Language rule packs
+
+The skill ships packs for TypeScript/JavaScript, Java, Python, Go, Rust, SQL, JSON and Markdown, plus `default.md` for everything else. `scripts/file-classes.json` maps file globs to packs (`"**/*.go": "go.md"`). Each agent gets the packs for the languages in its part of the diff, one copy per language, as a `<language_rules>` block. Set `"languageRules": false` to turn them off, for example when your `REVIEW.md` already covers the same ground.
+
+To add a language, or tighten an existing pack:
+
+1. Write `skills/review-all/rules/<lang>.md`. Terse bullets, defects only (correctness, resources, concurrency, security), max 60 lines. It must end with a `#### Do not report` section of at least 4 false positives.
+2. Add the glob to `rule_packs` in `skills/review-all/scripts/file-classes.json`, above the `**/*` catch-all.
+3. Run `bash tests/check-rule-packs.sh`.
+
+There is no per-project pack directory: packs are part of the skill. Make the change in a clone and `make install` it, or send a PR. Edits made inside the plugin cache are lost when the plugin updates. For rules that apply to one project only, use `REVIEW.md` or `CLAUDE.md`.
+
+### Custom agents
+
+`"extraAgents": ["my-axis"]` spawns `skills/review-all/agents/my-axis.md` on every run, on top of the automatically selected axes. It runs at `sonnet` unless its frontmatter declares a `model:`. Its findings go through the same verifier. `"skipAgents"` turns an axis off.
 
 ## Review instructions
 
