@@ -39,6 +39,20 @@ You are a comprehensive, project-agnostic code review orchestrator. You combine 
 
 ---
 
+## Important Rules
+
+1. **LOCAL review only** unless the user explicitly picks "Post to PR". Default output is the terminal.
+2. **Always reach the Phase 4 menu.** A finished report is the START of Phase 4, never the end of the turn. Present the menu in the same turn as the report; skip it only when every section says "None found." and there is no appendix and no 🔬 unverified findings (mirrors the Phase 2.75 no-silent-drop rule, applied to the menu). **Exception: gate mode** (Step 0.1) has no report and no menu — the verdict + exit code is its terminal step.
+3. **Verify everything.** No finding reaches the main report without verification (or VERIFIED gate confidence).
+4. **Evidence required.** Every finding must cite real code. "Might be a problem" is unacceptable.
+5. **No noise.** 3 verified findings beat 20 unverified suggestions.
+6. **Respect conventions.** Pattern in 5+ unchanged files is established convention — do not flag it.
+7. **Changed code only, but with semantic depth.** Only flag NEW or MODIFIED code (except Critical security). Weight scrutiny by change type: newly **Added** code gets the strictest bar (no established-convention cover); **Deleted** code gets downstream-breakage scrutiny (what referenced it?). For new/modified code, analyze full semantic context — if code switches on enums or filters events, verify completeness against all possible values.
+8. **Actionable fixes.** Every finding must include a concrete fix.
+9. **Project-agnostic.** Discover conventions from the repo. Never assume framework rules from one project apply to another.
+
+---
+
 ## Phase 0.0: Preflight + Discovery — One Call
 
 **Goal**: probe tools, toolchain, test patterns, and the rules cache in a SINGLE script call, so Phase 0 costs one round trip regardless of cache state.
@@ -544,40 +558,6 @@ Keep heartbeat output to one line each. Do NOT narrate internal deliberation bet
 
 ---
 
-## Important Rules
+## Examples & Common Issues
 
-1. **LOCAL review only** unless the user explicitly picks "Post to PR". Default output is the terminal.
-2. **Always reach the Phase 4 menu.** A finished report is the START of Phase 4, never the end of the turn. Present the menu in the same turn as the report; skip it only when every section says "None found." and there is no appendix and no 🔬 unverified findings (mirrors the Phase 2.75 no-silent-drop rule, applied to the menu). **Exception: gate mode** (Step 0.1) has no report and no menu — the verdict + exit code is its terminal step.
-3. **Verify everything.** No finding reaches the main report without verification (or VERIFIED gate confidence).
-4. **Evidence required.** Every finding must cite real code. "Might be a problem" is unacceptable.
-5. **No noise.** 3 verified findings beat 20 unverified suggestions.
-6. **Respect conventions.** Pattern in 5+ unchanged files is established convention — do not flag it.
-7. **Changed code only, but with semantic depth.** Only flag NEW or MODIFIED code (except Critical security). Weight scrutiny by change type: newly **Added** code gets the strictest bar (no established-convention cover); **Deleted** code gets downstream-breakage scrutiny (what referenced it?). For new/modified code, analyze full semantic context — if code switches on enums or filters events, verify completeness against all possible values.
-8. **Actionable fixes.** Every finding must include a concrete fix.
-9. **Project-agnostic.** Discover conventions from the repo. Never assume framework rules from one project apply to another.
-
----
-
-## Examples
-
-User says: "review my changes" (nothing staged or committed ahead)
-→ Empty-argument path: review the current branch vs its merge-base with the default branch, or the last commit if on the default branch with no changes.
-
-User says: "/review-all PR #42 --paths apps/web,libs/shared"
-→ Resolve via `gh pr diff 42`, then apply the `--paths` include filter to restrict the diff to those two prefixes before running phases.
-
-User says: "review-all init"
-→ Load `references/init-wizard.md` and run the config wizard instead of a review; exit after writing `.claude/review-all.json`.
-
-User says: "pre-commit check on my staged files"
-→ Run with `--staged` — review only staged changes through the deterministic gates and parallel heuristic agents, then present the fix-scope menu.
-
-## Common Issues
-
-- **`git` missing in Phase 0.0 discovery** → `discover.sh` exits non-zero; abort with explicit error — nothing in the skill works without git (it is the only hard requirement).
-- **`PR #N` target requested but `gh` is unavailable** → reject that argument with clear message; the GitHub PR resolution path needs the `gh` CLI.
-- **Agent or verifier never returns** → the Phase 2.75 completion gate re-spawns it once; if still fails, surface it under the `⚠️ PARTIAL REVIEW` banner — never drop it silently.
-- **Report printed, turn ended, no menu** → premature-completion stop (the #1 Phase 4 failure mode). The mandatory menu gate requires the Phase 4 menu in the SAME turn as the report unless every section is "None found." with no appendix — re-present it.
-- **Stale rules after a branch switch** → the cache key (computed by `discover.sh`) hashes CLAUDE.md file contents, not mtimes (`git checkout` does not bump mtimes), so a branch switch changes the key → MISS → fresh extraction. Toolchain commands and tool availability are never cached at all — re-probed every run. Legacy `claudeMdHash`-era cache files auto-MISS on the schema check.
-- **Resolved range is huge** (≥20 commits or ≥200 files on the empty-args default) → the large-range scope prompt offers narrower options; skip it only when an explicit argument already declared intent.
-- **A re-run re-spawns every axis instead of resuming** → the checkpoint key changed. It covers HEAD, the exact diff bytes, the personas + `SKILL.md`, and `REVIEW.md`/`.claude/review-all.json`, so any edit to the working tree or to the skill invalidates all axes by design. `load`'s `ignored` array names the reason per axis (`key-mismatch`, `schema`, `unreadable`, `axis-mismatch`).
+Worked invocations and failure-mode fixes live in **`references/troubleshooting.md`** (sibling of this file).

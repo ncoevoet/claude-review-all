@@ -2,6 +2,17 @@
 
 Loaded by `/review-all` Phase 2.5. Tracks each unique finding across runs so unchanged findings skip re-verification and stale findings auto-decay.
 
+## Contents
+
+- [Why this exists](#why-this-exists)
+- [Schema](#schema)
+- [Status semantics](#status-semantics)
+- [Lifecycle rules (run by Phase 2.5)](#lifecycle-rules-run-by-phase-25)
+- [Machine rejections vs. human dismissals](#machine-rejections-vs-human-dismissals)
+- [Migration from `snooze.json`](#migration-from-snoozejson)
+- [Interaction with `history.jsonl`](#interaction-with-historyjsonl)
+- [Code hash computation](#code-hash-computation)
+
 ## Why this exists
 
 `history.jsonl` is append-only and only counts recurrence. It cannot answer: "is finding X still present?", "was finding Y fixed?", "is finding Z snoozed?". `state.json` is the authoritative per-finding lifecycle store. `history.jsonl` remains the audit log.

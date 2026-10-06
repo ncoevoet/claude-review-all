@@ -4,6 +4,16 @@ Loaded by `/review-all` Phase 2. Lists every parallel agent, the diff slice it r
 
 Agent personas are listed directly in SKILL.md's Phase 2 section so they live one-hop-deep from SKILL.md (per the Skills spec's reference-depth rule). This file holds only the spawn-condition table, slice mapping, chunking, and timeout/retry rules — no new agent references.
 
+## Contents
+
+- [Agent inputs (per agent)](#agent-inputs-per-agent)
+- [Per-agent diff ordering](#per-agent-diff-ordering)
+- [Agents to spawn](#agents-to-spawn)
+- [Model per axis](#model-per-axis)
+- [Checkpoint resume (per axis)](#checkpoint-resume-per-axis)
+- [Chunking large slices](#chunking-large-slices)
+- [Timeouts & retry](#timeouts--retry)
+
 ## Agent inputs (per agent)
 
 All slices below are computed from the **filtered diff** — i.e. after `--paths` / `--exclude` and the multi-workspace scope prompt from Step 0.1 have been applied. No agent ever sees files outside the user-resolved scope.
