@@ -61,6 +61,25 @@ class TestDedupe(unittest.TestCase):
                              env={"REVIEW_ALL_SUGGESTED_CAP": "1"}).stdout)
         self.assertEqual(len([f for f in out["kept"] if f["severity"] == "SUGGESTED"]), 3)
 
+    def test_cli_cap_accepts_zero_boundary_as_unlimited(self):
+        out = json.loads(run(suggested(1), ["--suggested-cap", "0"]).stdout)
+        self.assertEqual(len(out["kept"]), 1)
+
+    def test_cli_cap_rejects_negative_value(self):
+        p = run([], ["--suggested-cap", "-1"])
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("--suggested-cap needs a non-negative integer", p.stderr)
+
+    def test_cli_cap_rejects_non_integer_value(self):
+        p = run([], ["--question-cap", "one"])
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("--question-cap needs a non-negative integer", p.stderr)
+
+    def test_cli_cap_rejects_missing_value(self):
+        p = run([], ["--suggested-cap"])
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("--suggested-cap needs a non-negative integer", p.stderr)
+
     def test_corroborating_agents_counts_single_agent_as_one(self):
         out = json.loads(run([{"id": "1", "root_cause_key": "k", "severity": "DEBT",
                                "source_agent": "a", "evidence": "e"}]).stdout)
