@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # check-anonymization.sh — release gate: the published skill artifacts
-# (skills/, README.md) must contain NO real employer / product / repo / ticket
+# (skills/, docs/, README.md) must contain NO real employer / product / repo / ticket
 # names. This repo is PUBLIC, so the REAL blocklist lives in a gitignored
 # sibling (anonymization-blocklist.txt) and is never committed. When that file
 # is absent (e.g. on CI) the script falls back to the committed placeholder
@@ -30,10 +30,10 @@ if [[ -z "$pattern" ]]; then
   exit 2
 fi
 
-echo "check-anonymization: scanning skills/ + README.md against $mode"
+echo "check-anonymization: scanning skills/ + docs/ + README.md against $mode"
 # Scan only published artifacts. The blocklist files live under tests/ and are
 # never scanned, so the gate can never match its own pattern list.
-matches="$(grep -rinE "$pattern" "$ROOT/skills" "$ROOT/README.md" 2>/dev/null)"
+matches="$(grep -rIinE "$pattern" "$ROOT/skills" "$ROOT/docs" "$ROOT/README.md" 2>/dev/null)"
 rc=$?
 if [[ $rc -eq 0 ]]; then
   printf '%s\n' "$matches"

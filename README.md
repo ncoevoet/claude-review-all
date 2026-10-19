@@ -96,9 +96,11 @@ The skill grew out of several years of daily use of Claude for code review on re
 
 ## How it's tested
 
-**Eval suite.** There are 98 labeled cases in `skills/review-all/evals/`: 44 TypeScript, 20 Java, 11 Python, 5 Go, 4 SQL, 4 Rust. Most are recall cases, where a planted bug (race, leak, injection, N+1, broken contract…) must be reported. The rest are precision cases, where correct code that looks suspicious must not be flagged. Some cases cover gate mode, the rules cache, `REVIEW.md`, a toolchain whose tests really fail, and dismissal state that carries across runs.
+**Eval suite.** There are 99 labeled cases in `skills/review-all/evals/`: 47 TypeScript, 20 Java, 11 Python, 11 JavaScript, 5 Go, 4 Rust, 1 generated large diff. Each case is counted once, by the language of most of its fixture files. Four of them also ship a SQL migration. Most are recall cases, where a planted bug (race, leak, injection, N+1, broken contract…) must be reported. The rest are precision cases, where correct code that looks suspicious must not be flagged. Some cases cover gate mode, the rules cache, `REVIEW.md`, a toolchain whose tests really fail, and dismissal state that carries across runs.
 
-**Runner.** `scripts/run-evals-headless.sh` builds each fixture into a throwaway git repo and runs `/review-all` there with `claude -p`. A second LLM call then grades the report against the case's rubric. `eval-scorecard.py` adds up recall, precision and F1. Runs use `REVIEW_ALL_EVAL_RUNS=3` or more and compare pass rates, because a single run is noisy. `REVIEW_ALL_EVAL_MODEL` pins the model so two runs can be compared.
+**Runner.** `scripts/run-evals-headless.sh` builds each fixture into a throwaway git repo and runs `/review-all` there with `claude -p`. A second LLM call then grades the report against the case's rubric. `eval-scorecard.py` adds up recall, precision and F1. Runs use `REVIEW_ALL_EVAL_RUNS=3` or more and compare pass rates, because a single run is noisy. `REVIEW_ALL_EVAL_MODEL` pins the model so two runs can be compared. `REVIEW_ALL_EVAL_KEEP_DIR=/tmp/keep` keeps each run's report, judge output and `CONFIG.txt` under `/tmp/keep/<case-id>/`; it refuses a case directory that is not empty. `scripts/replicate-divergence.py /tmp/keep/<case-id> [more dirs…]` then prints a per-run judge and tally table and a finding-cluster by run matrix, with the `DIVERGENT` rows flagged. The idea, that variance between replicates is the signal, comes from google-research/harness2.
+
+**Ledger.** [`docs/ledger.md`](docs/ledger.md) records a verdict per change (helped, hurt, no observed effect, confounded, unmeasured), built from commit messages only.
 
 **A/B before shipping.** A change to a persona or the verifier is run on the relevant cases with and without the change. If it gives no gain, it is reverted. A case only counts as evidence if the version without the change actually fails it. This rule has led to reverting shipped-looking work: a doc-staleness rule and a set of severity-inflation rules were dropped because the baseline already passed their cases.
 
@@ -112,7 +114,7 @@ The skill grew out of several years of daily use of Claude for code review on re
 - a check that no real project names appear in fixtures;
 - eval schema validation;
 - shellcheck;
-- 13 Python unit-test files;
+- 14 Python unit-test files;
 - 14 `tests/check-*.sh` doc gates.
 
 Behavior that exists only as instructions cannot be run headlessly, so each doc gate greps the docs for the key sentence. Each gate was checked by deleting that sentence on a scratch copy and confirming the gate fails.

@@ -94,6 +94,52 @@ echo local-rule > "$drepo/CLAUDE.local.md"
 key3=$(bash "$SCRIPTS/discover.sh" "$drepo" | python3 -c 'import json,sys; print(json.load(sys.stdin)["cacheKey"])')
 [[ "$key3" != "$key" ]] && ok "untracked CLAUDE.local.md changes cacheKey" || no "untracked CLAUDE.local.md changes cacheKey"
 
+echo "run-evals-headless.sh (REVIEW_ALL_EVAL_KEEP_DIR parity, stubbed claude)"
+stub=$(mktemp -d "${TMPDIR:-/tmp}/review-all-stub.XXXXXX")
+cat > "$stub/claude" <<'STUB'
+#!/usr/bin/env bash
+echo "called" >> "$STUB_LOG"
+if [[ "${2:-}" == Run* ]]; then
+  printf '## Review\n\n<!-- review-all-severity: {"critical":0,"important":1,"decision":0,"suggestion":0,"question":0} -->\n'
+else
+  cat >/dev/null
+  echo PASS
+fi
+STUB
+chmod +x "$stub/claude"
+export STUB_LOG="$stub/calls.log"
+RUNNER="$SCRIPTS/run-evals-headless.sh"
+out_a=$(PATH="$stub:$PATH" REVIEW_ALL_EVAL_RUNS=2 bash "$RUNNER" 01 2>/dev/null); rc_a=$?
+keep="$stub/keep"
+out_b=$(PATH="$stub:$PATH" REVIEW_ALL_EVAL_RUNS=2 REVIEW_ALL_EVAL_KEEP_DIR="$keep" bash "$RUNNER" 01 2>/dev/null); rc_b=$?
+assert_eq "$out_b" "$out_a" "KEEP_DIR set: stdout identical to unset"
+assert_eq "$rc_b" "$rc_a" "KEEP_DIR set: exit status identical to unset"
+assert_in "$out_a" "RESULT,01" "stubbed runner produced a RESULT line"
+cdir=$(ls -d "$keep"/01*/ | head -n 1); cdir="${cdir%/}"
+for f in CONFIG.txt run1.report.md run1.judge.txt run2.report.md run2.judge.txt; do
+  [[ -s "$cdir/$f" ]] && ok "kept $f" || no "kept $f"
+done
+assert_in "$(cat "$cdir/run2.report.md")" "review-all-severity" "kept report has the report text"
+assert_eq "$(cat "$cdir/run1.judge.txt")" "PASS" "kept judge output is the judge text"
+assert_in "$(cat "$cdir/CONFIG.txt")" "CONFIG,model=" "CONFIG.txt carries the CONFIG line"
+assert_in "$(cat "$cdir/CONFIG.txt")" "skill_head=" "CONFIG.txt records skill HEAD"
+assert_in "$(cat "$cdir/CONFIG.txt")" "skill_dirty=" "CONFIG.txt records dirty flag"
+assert_in "$(cat "$cdir/CONFIG.txt")" "installed_cache=" "CONFIG.txt records installed cache path"
+: > "$STUB_LOG"
+err=$(PATH="$stub:$PATH" REVIEW_ALL_EVAL_KEEP_DIR="$keep" bash "$RUNNER" 01 2>&1 >/dev/null); rc_c=$?
+assert_eq "$rc_c" "3" "non-empty keep dir: exit 3"
+assert_in "$err" "refusing to overwrite" "non-empty keep dir: stderr explains"
+[[ ! -s "$STUB_LOG" ]] && ok "refusal happens before any claude call" || no "refusal happens before any claude call"
+# Multi-case filter: evidence on the SECOND selected case must refuse before the first spends a call.
+keep2="$stub/keep2"; mkdir -p "$keep2/91-claude-md-stale-claim"; echo x > "$keep2/91-claude-md-stale-claim/old"
+: > "$STUB_LOG"
+err=$(PATH="$stub:$PATH" REVIEW_ALL_EVAL_KEEP_DIR="$keep2" bash "$RUNNER" 9 2>&1 >/dev/null); rc_d=$?
+assert_eq "$rc_d" "3" "non-empty later case dir: exit 3"
+assert_in "$err" "91-claude-md-stale-claim" "non-empty later case dir: names it"
+[[ ! -s "$STUB_LOG" ]] && ok "later-case refusal: zero claude calls" || no "later-case refusal: zero claude calls"
+[[ ! -e "$keep2/90-review-md-raised-bar" ]] && ok "later-case refusal: earlier case dir not created" || no "later-case refusal: earlier case dir not created"
+rm -rf "$stub"
+
 echo
 echo "scripts: $pass passed, $fail failed"
 [[ $fail -eq 0 ]]

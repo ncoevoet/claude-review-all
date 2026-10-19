@@ -27,6 +27,13 @@
 #                             materialized fixture (after staging, so untracked).
 #                             Use to A/B config-driven features, e.g.
 #                             '{"verifierVotes":3}'.
+#   REVIEW_ALL_EVAL_KEEP_DIR=D  persist evidence under D/<case-id>/: CONFIG.txt (once),
+#                             run<r>.report.md and run<r>.judge.txt per graded run
+#                             (r = real run index). Refuses (exit 3, before any claude
+#                             call) when D/<case-id>/ already exists and is non-empty,
+#                             so a rerun never overwrites evidence; use a NEW dir.
+#                             Example: REVIEW_ALL_EVAL_KEEP_DIR=/tmp/keep. Unset =
+#                             behaviour and stdout unchanged.
 #
 # Prereqs:
 #   - `claude` CLI on PATH, authenticated.
@@ -66,6 +73,7 @@ eff=()
 mdl=()
 [[ -n "${REVIEW_ALL_EVAL_MODEL:-}" ]] && mdl=(--model "$REVIEW_ALL_EVAL_MODEL")
 runs=${REVIEW_ALL_EVAL_RUNS:-1}
+keep="${REVIEW_ALL_EVAL_KEEP_DIR:-}"
 # Bound each claude -p call so a hung review/grade can't stall the whole suite.
 # timeout is optional (GNU coreutils; absent on bare macOS) — uncapped if missing.
 to=(); command -v timeout >/dev/null 2>&1 && to=(timeout "${REVIEW_ALL_EVAL_TIMEOUT:-420}")
@@ -76,13 +84,56 @@ review_once() { ( cd "$1" && "${to[@]}" claude -p "$2" --dangerously-skip-permis
 # number. An unlabelled results file is indistinguishable from one measured at a
 # different default, which is exactly how a tier decision ends up resting on a
 # run nobody can reproduce.
-echo "CONFIG,model=${REVIEW_ALL_EVAL_MODEL:-<cli-default:UNPINNED>},effort=${REVIEW_ALL_EVAL_EFFORT:-<skill-floor:high>},runs=${REVIEW_ALL_EVAL_RUNS:-1},timeout=${REVIEW_ALL_EVAL_TIMEOUT:-420},config_json=${REVIEW_ALL_CONFIG_JSON:-<none>}"
+config_line="CONFIG,model=${REVIEW_ALL_EVAL_MODEL:-<cli-default:UNPINNED>},effort=${REVIEW_ALL_EVAL_EFFORT:-<skill-floor:high>},runs=${REVIEW_ALL_EVAL_RUNS:-1},timeout=${REVIEW_ALL_EVAL_TIMEOUT:-420},config_json=${REVIEW_ALL_CONFIG_JSON:-<none>}"
+echo "$config_line"
+# One CONFIG.txt per kept case dir: the CONFIG line plus what the skill under test
+# was (git HEAD, dirty flag, installed cache path the CLI actually loads).
+keep_config() {
+  local head dirty cache
+  head=$(git -C "$SKILL_ROOT" rev-parse HEAD 2>/dev/null) || head="<unknown>"
+  dirty=false
+  [[ -n "$(git -C "$SKILL_ROOT" status --porcelain 2>/dev/null)" ]] && dirty=true
+  cache=$(python3 -c "
+import json,os,sys
+try:
+    d=json.load(open(os.path.expanduser('~/.claude/plugins/installed_plugins.json')))
+    for k,v in d.get('plugins',{}).items():
+        if k.startswith('review-all@'):
+            print((v[0] if isinstance(v,list) else v)['installPath']); break
+except Exception:
+    pass
+" 2>/dev/null)
+  [[ -n "$cache" ]] || cache="<unknown>"
+  { echo "$config_line"; echo "skill_head=$head"; echo "skill_dirty=$dirty"; echo "installed_cache=$cache"; } > "$1" \
+    || echo "run-evals-headless: cannot write $1" >&2
+}
+
+# Case files selected by the README skip + prefix filter; used by BOTH the keep-dir
+# pre-pass and the main loop so they cannot disagree.
+selected() {
+  local f id
+  for f in "$EVALS"/*.json; do
+    id=$(basename "$f" .json)
+    case "$id" in README*) continue ;; esac
+    [[ -n "$filter" && "$id" != "$filter"* ]] && continue
+    printf '%s\n' "$f"
+  done
+}
+# Refuse BEFORE any claude call: a later selected case with evidence on disk must
+# not be discovered after earlier cases already spent calls.
+if [[ -n "$keep" ]]; then
+  while IFS= read -r f; do
+    id=$(basename "$f" .json)
+    if [[ -d "$keep/$id" && -n "$(ls -A "$keep/$id" 2>/dev/null)" ]]; then
+      echo "run-evals-headless: $keep/$id exists and is non-empty — refusing to overwrite evidence; use a new REVIEW_ALL_EVAL_KEEP_DIR." >&2
+      exit 3
+    fi
+  done < <(selected)
+fi
 
 pass=0; fail=0; err=0
-for f in "$EVALS"/*.json; do
+while IFS= read -r -u 3 f; do
   id=$(basename "$f" .json)
-  case "$id" in README*) continue ;; esac
-  [[ -n "$filter" && "$id" != "$filter"* ]] && continue
 
   query=$(field "$f" query); [[ -z "$query" ]] && query="/review-all"
   # Natural-language invocation: appending prose AFTER the slash command would be
@@ -91,6 +142,10 @@ for f in "$EVALS"/*.json; do
   prompt="Run the ${query} skill on this repository's changes. Output ONLY the final review report through Phase 3. Do NOT run the Phase 4 interactive menu and do NOT call AskUserQuestion."
   rb=$(rubric "$f")
 
+  if [[ -n "$keep" ]]; then
+    mkdir -p "$keep/$id" || { echo "run-evals-headless: cannot create $keep/$id" >&2; exit 3; }
+    keep_config "$keep/$id/CONFIG.txt"
+  fi
   cp=0; graded=0
   for ((r=1; r<=runs; r++)); do
     repo=$(python3 "$HERE/materialize-fixture.py" "$f") || continue
@@ -105,6 +160,9 @@ for f in "$EVALS"/*.json; do
     bad_report "$report" && report=$(review_once "$repo" "$prompt")   # one retry
     if bad_report "$report"; then rm -rf "$repo"; continue; fi
     graded=$((graded+1))
+    if [[ -n "$keep" ]]; then
+      printf '%s\n' "$report" > "$keep/$id/run$r.report.md" || echo "run-evals-headless: cannot write $keep/$id/run$r.report.md" >&2
+    fi
     # A missing tally is reported, never silently skipped: the per-tier counts are
     # the only CONTINUOUS signal an A/B has (pass-rates at N=3 sit inside this
     # suite's noise floor), so losing them quietly costs the whole comparison and
@@ -124,6 +182,9 @@ for f in "$EVALS"/*.json; do
     fi
     judge=$(printf 'You are grading a code-review report against a rubric. Reason briefly, then on the LAST line output exactly PASS or FAIL.\n\n<rubric>\n%s\n</rubric>\n\n<report>\n%s\n</report>\n' \
         "$rb" "$report" | "${to[@]}" claude -p --dangerously-skip-permissions "${mdl[@]}" 2>/dev/null)
+    if [[ -n "$keep" ]]; then
+      printf '%s' "$judge" > "$keep/$id/run$r.judge.txt" || echo "run-evals-headless: cannot write $keep/$id/run$r.judge.txt" >&2
+    fi
     if echo "$judge" | grep -qiE '\bPASS\b' && ! echo "$judge" | tail -1 | grep -qiE '\bFAIL\b'; then
       cp=$((cp+1))
     fi
@@ -137,7 +198,7 @@ for f in "$EVALS"/*.json; do
   else
     fail=$((fail+1)); echo "RESULT,$id,FAIL ($cp/$graded)"
   fi
-done
+done 3< <(selected)
 
 echo "headless evals: $pass passed, $fail failed, $err errored (runs/case=$runs, model=${REVIEW_ALL_EVAL_MODEL:-<cli-default:UNPINNED>})"
 # A filter that matches nothing graded zero cases and must not look like a green
