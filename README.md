@@ -49,7 +49,7 @@ Requires Claude Code, `git`, `bash`, `python3`. `gh` is optional: it is used for
 5. **Dedupe and verify.** Findings are grouped by root cause (the report says "Flagged independently by N agents"). Then a verifier (Haiku by default) tries to disprove each one: a behavior claim has to be backed by a quoted source line. Findings scoring ≥75 go in the report, 50–74 in the appendix, and the rest are dropped.
 6. **Claim classes.** A runtime, data or rendering claim that is backed only by reading the source gets the `unverified` verdict. It is shown in its own section with the observation that would settle it, and it never blocks a gate.
 7. **Report.** It opens with a verdict line, then gate results with a **Provenance** column (command, exit code, time), then findings by severity. It ends with a machine-readable `<!-- review-all-severity: {…} -->` tally.
-8. **Menu.** Fix by scope, Triage one-by-one, More actions (export JSON/SARIF, generate tests, ticket, post to PR, …), or done. After a fix, the changed files get a delta review.
+8. **Menu.** One step, with the finding IDs in the labels: fix every 🔴/🟠/🟡 (recommended), fix must-fix only, Triage one-by-one, or done. Type anything else in `Other`: a scope such as `I #7 #9`, or an action (export JSON/SARIF, ticket, tests, ask, post to PR, snooze, re-run). After a fix, the changed files get a delta review.
 
 Findings dismissed as `wontfix` or rejected by the verifier are stored in `.claude/review-all/state.json`. Later runs pass them to the agents as a `<previously_dismissed>` digest so they are not raised again. Details for each phase: `skills/review-all/references/`.
 

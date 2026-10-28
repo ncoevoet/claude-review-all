@@ -1,6 +1,6 @@
 # Phase 4 — Post-Report Choices
 
-Loaded by `/review-all` Phase 4. Presents the post-report menu (three modes), the guided triage loop, the three follow-up actions, the apply-fixes sub-menu, the loop, and guardrails.
+Loaded by `/review-all` Phase 4. Presents the one-step post-report menu, the free-text actions reachable through its `Other` field, the guided triage loop, the apply-fixes routine, the loop, and guardrails.
 
 **Mandatory menu gate.** Presenting this menu is the closing step of every review, not an optional extra — see the gate in SKILL.md Phase 4. After printing the Phase 3 report you MUST present the primary menu via `AskUserQuestion` **in the same turn**. The ONLY case that skips it: every report section reads "None found." AND there is no appendix AND no 🔬 unverified findings (nothing scoring 50–74, nothing awaiting observation) — then state `✅ No actionable findings — nothing to triage.` and stop. Ending the turn on the report without the menu is a silent failure (the #1 Phase 4 failure mode after a long `effort: high` review).
 
@@ -8,50 +8,42 @@ Loaded by `/review-all` Phase 4. Presents the post-report menu (three modes), th
 
 ## Table of Contents
 
-- [Primary menu — three modes](#primary-menu--three-modes)
-- [Mode A — Fix by scope…](#mode-a--fix-by-scope)
-- [Mode B — Triage one-by-one](#mode-b--triage-one-by-one)
-- [Mode C — More actions… (extended, multi-select)](#mode-c--more-actions-extended-multi-select)
+- [Primary menu — one step](#primary-menu--one-step)
+- [Other: expression grammar](#other-expression-grammar)
+- [Free-text actions](#free-text-actions)
+- [Triage one-by-one](#triage-one-by-one)
 - [The three follow-up actions](#the-three-follow-up-actions)
-- [Apply-fixes sub-menu](#apply-fixes-sub-menu)
+- [Apply-fixes routine](#apply-fixes-routine)
 - [Fix Results](#fix-results)
 - [Loop](#loop)
 - [Auto-delta after successful apply-fixes](#auto-delta-after-successful-apply-fixes)
 - [Guardrails](#guardrails)
 
-Every finding in the report MUST be prefixed with its number (Finding 1, Finding 2, …) — main sections AND appendix. The numbered list is what **Custom** references via `#N` / `N` / `N-M`, and what the per-finding actions (Triage, Ask, Generate tests, Create ticket) select by.
+Every finding in the report MUST be prefixed with its number (Finding 1, Finding 2, …) — main sections AND appendix. The numbered list is what the menu labels, the `Other` expression (`#N` / `N` / `N-M`) and the per-finding actions select by.
 
-## Primary menu — three modes
+## Primary menu — one step
 
-Present a single-select menu via `AskUserQuestion` with at most four options, built dynamically. The four are *modes*, not fix-scopes — fixing is one mode among several so the other actions stay discoverable (the previous fix-only primary menu buried them).
-
-| Mode | Show when | Opens |
-|------|-----------|-------|
-| **Fix by scope…** | ≥1 fixable finding (🔴/🟠/🟡) | the fix-scope selector below (Fix critical / +important / +debt / Custom grammar) |
-| **Triage one-by-one** | ≥1 fixable finding (🔴/🟠/🟡) | the guided per-finding loop (Mode B) |
-| **More actions…** | always | the extended multi-select menu (Mode C) |
-| **Skip / done** | always | terminate Phase 4 |
+Present a single-select menu via `AskUserQuestion` with at most four options whose labels name the **concrete finding IDs** the choice acts on. One click fixes: there is no scope sub-menu. (Observed usage: the fix path won ~2/3 of primary choices, the broadest scope won every scope sub-menu, and the extended actions menu was never opened — so the fix scope goes on the first screen and everything else moves to free text.)
 
 **Assembly algorithm** (deterministic):
-1. `fixable = (#🔴) + (#🟠) + (#🟡)`.
-2. If `fixable > 0`: options = [Fix by scope…, Triage one-by-one, More actions…, Skip / done] (exactly 4 — cap-safe). Mark **Fix by scope…** Recommended when any 🔴 exists, else mark **Triage one-by-one** Recommended.
-3. If `fixable == 0` but ≥1 🔵/⚪ or an appendix exists: drop both fix modes; options = [More actions…, Skip / done], **leading with More actions…** (this is the discoverability path when only suggestions/questions exist — 🔵 still fix via Mode C → "Apply fixes (alternate scopes)").
-4. If every section says "None found." AND no appendix AND no 🔬 unverified findings → skip Phase 4 entirely (per the mandatory-menu gate's one exception).
+1. `fixable = 🔴 + 🟠 + 🟡`; `mustfix = 🔴 + 🟠`. Findings are numbered in section order, so each tier set is a contiguous run of IDs — always write it in range form (`#1–34`), never as a list, so labels stay short on large reports.
+2. If `fixable > 0`, options in this order:
+   1. `Fix <tiers present> (#a–b)` — e.g. `Fix 🟠 + 🟡 (#1–10)`. Always **Recommended**, including when only 🟡 exists (deliberate: the broadest fixable scope is what users pick).
+   2. `Fix must-fix only (#a–b)` — only when `mustfix > 0` AND 🟡 > 0 (otherwise it would duplicate option 1).
+   3. `Triage one-by-one` — only when `fixable ≥ 2`.
+   4. `Done`.
+3. If `fixable == 0` and ≥1 🔵 → [`Fix suggested (#a–b)`, `Done`].
+4. If `fixable == 0`, no 🔵, but ⚪ / appendix / 🔬 findings exist → [`Ask about a finding`, `Done`] (⚪ and appendix are never auto-applied, so there is nothing to fix; every menu has at least 2 options).
+5. If every section says "None found." AND no appendix AND no 🔬 unverified findings → skip Phase 4 entirely (per the mandatory-menu gate's one exception).
 
-## Mode A — Fix by scope…
+**Question text** = the verdict summary, then one hint line for the `Other` field:
+`Other: an expression (e.g. "I #7 #9") or a request — export, ticket #3, tests #2, ask #4, snooze #5, post to PR, re-run.`
 
-Reached via Primary → **Fix by scope…**. This is the former primary fix-scope menu, now one level down. Present the scopes as a single-select (`AskUserQuestion`), only the scopes with ≥1 matching finding:
+`AskUserQuestion` caps options at 4 — never build a picker with one option per finding (crashes with `InputValidationError: array too_big` whenever a report has >4 findings; observed twice in real sessions). Never auto-bundle findings into ad-hoc groups (`"All debt + suggested (4-8)"`) beyond the tier ranges above — anything finer goes through the `Other` expression.
 
-| Label | When to offer | Action |
-|-------|---------------|--------|
-| **Fix critical (Recommended)** | At least one 🔴 finding | Apply 🔴 findings |
-| **Fix critical + important** | At least one 🔴 or 🟠 finding | Apply 🔴 + 🟠 findings |
-| **Fix critical + important + debt** | At least one 🔴/🟠/🟡 finding | Apply 🔴 + 🟠 + 🟡 findings |
-| **Custom (C/I/D/S + #IDs)** | Any finding exists | Prompt for a free-text expression mixing severity letters and finding IDs (grammar below) → apply the UNION |
+## Other: expression grammar
 
-The chosen scope feeds the [apply-fixes sub-menu](#apply-fixes-sub-menu) (same routine for all scopes). Additional scopes (Fix all 🔵, Fix by agent) live in Mode C under **Apply fixes (alternate scopes)**.
-
-### Custom expression grammar
+When the `Other` answer parses as an expression, it is a fix scope — apply the UNION through the [apply-fixes routine](#apply-fixes-routine):
 
 ```
 C  I  D  S        severity letters (case-insensitive)
@@ -60,78 +52,59 @@ C  I  D  S        severity letters (case-insensitive)
 1-7   #3-#9       inclusive range (# optional on either side)
 ```
 
-Separators: comma, whitespace, or the word `and` — interchangeable. Result = UNION of every matched finding ID; duplicates collapse. Severity letters expand to all in-report findings of that tier.
+Separators: comma, whitespace, or the word `and` — interchangeable. Result = UNION of every matched finding ID; duplicates collapse. Severity letters expand to all in-report findings of that tier. Prefixed with `fix` it still parses (`fix I #11`).
 
 Examples:
 - `I D #11`    → all 🟠 + all 🟡 + Finding 11
 - `1-7, 11`   → Findings 1..7 plus 11
 - `C #14-#16` → all 🔴 + Findings 14, 15, 16
 
-Numeric-only input (`1,3,7-9`) remains valid — strict superset of the old "Select by number" behavior.
+When the `Other` answer does not parse as an expression, match it against the [free-text actions](#free-text-actions). If it matches neither, answer it as a question about the review and re-present the menu.
 
-### Custom prompt mechanism (hard rule)
+## Free-text actions
 
-`AskUserQuestion` caps options at 4. Do NOT build a picker with one option per finding when `Custom` is picked — crashes with `InputValidationError: array too_big` whenever a report has >4 findings (observed twice in real sessions).
+No menu lists these — the user names them in `Other` (or in a later message). A finding number is required where the action targets one finding; if it is missing or doesn't exist, ask for it in plain text. Each action returns to the primary menu ([Loop](#loop)).
 
-Decision tree for the `Custom` follow-up:
+| Request | Action |
+|---------|--------|
+| **Export findings (JSON + SARIF)** — `export` | Run `scripts/export-findings.py` → write `review-<iso>.json` + `review-<iso>.sarif` to `outputDir` for CI ingestion |
+| **Create a ticket** — `ticket #N` (or several IDs) | [Create a ticket/issue from a finding](#create-a-ticketissue-from-a-finding), confirmation-gated |
+| **Generate tests** — `tests #N` | [Generate tests for a finding](#generate-tests-for-a-finding), confirmation-gated |
+| **Ask a question** — `ask #N <question>` | [Ask a follow-up question about a finding](#ask-a-follow-up-question-about-a-finding) |
+| **Deep-dive** — `deep-dive #N` | Spawn focused agent (`subagent_type: general-purpose`, `model: opus`) that returns full callers/callees, root-cause analysis, 2-3 fix strategies with tradeoffs |
+| **Post to PR** — `post to PR` | Only when a PR exists for the current branch (probe `gh pr view`): comment the report with `gh pr comment` — show the body and confirm first |
+| **Snooze** — `snooze #N` | Ask reason + expiry → upsert in `stateFile` with `status: snoozed`, `snoozed_until: <expiry>` (see `state-file.md`) |
+| **Wontfix** — `wontfix #N` | Ask reason → upsert in `stateFile` with `status: wontfix` and current `code_hash` (see `state-file.md`) |
+| **Re-run review on the fixed code** — `re-run` | Only after a fix step succeeded: re-execute Phase 1 + 2 + 2.5 + 3 on the now-modified tree |
+| **Fix by agent** — `fix <agent-id>` | Apply-fixes routine over every 🔴/🟠/🟡/🔵 finding raised by that agent (🔵 alone: the `S` expression) |
+| Save report — `save` | Write to `outputDir/review-<iso-timestamp>.md` |
+| Generate patch — `patch` | Unified diff of the fixes, not applied — user runs `git apply` later |
+| Draft commit / PR description — `draft PR` | Synthesize a commit/PR body covering the changes and how findings were addressed |
+| Explain — `explain #N` | Plain-language explanation of one finding |
+| Schedule — `schedule` | Invoke the `/schedule` skill — recurring or one-shot re-review |
 
-1. **Total in-report findings ≤ 4** → AskUserQuestion with `multiSelect: true`, one option per finding (`"Finding N (Sev: title)"`). Cap-safe.
-2. **Total > 4** → AskUserQuestion with `multiSelect: false` and exactly these 2 options:
-   - `"Type expression (grammar shown above)"` — user picks this, types the expression via `Other` free-text.
-   - `"Cancel — back to primary menu"`.
-   Print the grammar block (the table above) as plain text in the question body for reference.
-3. **Never auto-bundle** findings into ad-hoc groups like `"All debt + suggested (4-8)"` to dodge the cap — bundles obscure intent, the grammar handles it cleanly (`D S` for the same union).
+When one answer names several actions, run them in this order: fixes → generate tests → read-only synthesis (deep-dive, ask, patch, draft, explain) → publication (save, post to PR, ticket, schedule — they share the confirmation gate) → state writes (snooze, wontfix) → re-run last.
 
-## Mode B — Triage one-by-one
+## Triage one-by-one
 
-Reached via Primary → **Triage one-by-one**. A guided loop that walks each must-fix finding and offers a per-finding micro-menu, so the user decides finding-by-finding instead of by batch scope. (No surveyed CLI reviewer offers guided triage — this is the per-thread resolve flow brought to the terminal.)
+Reached via Primary → **Triage one-by-one**. A guided loop that walks each finding and offers a per-finding micro-menu, so the user decides finding-by-finding instead of by batch scope.
 
 **Iteration set + order:**
 1. `queue = [🔴 in file:line order] + [🟠 in file:line order]` — must-fix first.
-2. After the must-fix queue is exhausted, ask ONCE (single-select, 2 options): `"Continue into 🟡 Debt (N findings)?"` / `"Done with triage"`. If continue → append 🟡 in file:line order. Never auto-include 🟡 (keeps the default pass short).
-3. Never include 🔵/⚪ in triage (⚪ is never auto-actionable; 🔵 stays in Mode A / Mode C).
+2. After the must-fix queue is exhausted (or immediately, when there is no must-fix), ask ONCE (single-select, 2 options): `"Continue into 🟡 Debt (N findings)?"` / `"Done with triage"`. If continue → append 🟡 in file:line order. Never auto-include 🟡 (keeps the default pass short).
+3. Never include 🔵/⚪ in triage (⚪ is never auto-actionable; 🔵 is fixed via `Fix suggested` or the `S` expression).
 
-**Per-finding micro-menu — the 6-actions-vs-4-cap resolution.** The desired verbs (Fix this / Ask a question / Create ticket / Snooze / Wontfix / Skip → next) number six, but `AskUserQuestion` caps at 4. Resolve with a shallow 1-hop drill-down so every call stays ≤4 — do NOT flatten these into one 6-option call (the documented `array too_big` crash):
+**Per-finding micro-menu** — `AskUserQuestion` caps at 4, so the verbs split over two rounds (do NOT flatten them into one >4-option call — the documented `array too_big` crash):
 
 - **Round 1** (per finding) — single-select, exactly 4 options:
-  - `Fix this` (Recommended) — run the [apply-fixes per-finding routine](#apply-fixes-sub-menu) for THIS finding only (mandatory Read-before-Edit, drift handling, record outcome), honoring all guardrails. Then advance to the next finding.
+  - `Fix this` (Recommended) — run the [apply-fixes routine](#apply-fixes-routine) for THIS finding only (mandatory Read-before-Edit, drift handling, record outcome), honoring all guardrails. Then advance to the next finding.
   - `Skip → next` — advance with no action.
   - `Dismiss…` — open Round 2.
-  - `More for this finding…` — open Round 3.
-- **Round 2 (`Dismiss…`)** — single-select, ≤4: `Snooze` (ask reason + expiry → `state.json` upsert `status: snoozed`, `snoozed_until`) / `Wontfix` (ask reason → `state.json` upsert `status: wontfix` + current `code_hash`) / `Back`. Both reuse the exact `state-file.md` upsert semantics — no new schema. Then return to THIS finding's Round 1.
-- **Round 3 (`More for this finding…`)** — single-select, ≤4: `Ask a question` / `Create ticket` (single-finding) / `Generate tests` (single-finding) / `Back`. Each runs the corresponding action below, then returns to THIS finding's Round 1 (so the user can ask, then still fix).
+  - `Stop triage` — end the pass now (findings not yet visited are left untouched).
+  - The question text carries the `Other` hint: `ask`, `ticket`, `tests` for THIS finding run the matching action, then return to THIS finding's Round 1 (so the user can ask, then still fix).
+- **Round 2 (`Dismiss…`)** — single-select, ≤4: `Snooze` (ask reason + expiry → `state.json` upsert `status: snoozed`, `snoozed_until`) / `Wontfix` (ask reason → `state.json` upsert `status: wontfix` + current `code_hash`) / `Back`. Both reuse the exact `state-file.md` upsert semantics — no new schema. Snooze/Wontfix advance to the next finding; `Back` returns to THIS finding's Round 1.
 
-**Termination & safety:** the queue is finite; each finding is visited at most once in Round 1; Round 2/3 always return to the same finding's Round 1; only `Fix this` / `Skip → next` advance — so no finding is re-queued and the loop always terminates (also exits on `Done with triage` at the 🟡 gate). After the pass, print a compact [Fix Results](#fix-results) table for the findings that got `Fix this`. If ≥1 fix applied AND all post-fix gates pass → run the [auto-delta](#auto-delta-after-successful-apply-fixes) once, then re-present the PRIMARY three-mode menu.
-
-## Mode C — More actions… (extended, multi-select)
-
-Reached via Primary → **More actions…**. Present via `AskUserQuestion` with `multiSelect: true`. Always includes `Skip / done` (selecting it terminates the loop even if other options are also selected — `Skip / done` is dominant). Only include rows whose "When to offer" holds.
-
-| Label | When to offer | Action |
-|-------|---------------|--------|
-| **Save full report to file** | Always | Write to `outputDir/review-<iso-timestamp>.md` |
-| **Ask a follow-up question about a finding** | Any finding | Free-text Q about one finding, answered by a focused read-only agent (see below) |
-| **Generate tests for a finding** | Any finding | Generate tests for the finding's scenario; confirm before writing (see below) |
-| **Create a ticket/issue from a finding** | Any finding | Turn a finding into a tracker issue, confirmation-gated (see below) |
-| **Export findings (JSON + SARIF)** | Any finding | Run `scripts/export-findings.py` → write `review-<iso>.json` + `review-<iso>.sarif` to `outputDir` for CI ingestion |
-| **Deep-dive a finding** | Any finding | Spawn focused agent (`subagent_type: general-purpose`, `model: opus`) that returns full callers/callees, root-cause analysis, 2-3 fix strategies with tradeoffs |
-| **Generate fix patches as a diff** | Any actionable finding | Produce a unified diff (no apply) — let user `git apply` later |
-| **Draft commit / PR description** | Any actionable finding | Synthesize a commit/PR body covering the changes + how findings were addressed |
-| **Post to GitHub PR** | A PR exists for the current branch (probe `gh pr view`) | Comment the report on the PR (uses `gh pr comment` — confirm body first) |
-| **Schedule a re-review** | Always | Invoke `/schedule` skill — recurring or one-shot |
-| **Snooze a finding** | Any finding | Ask for finding number + reason + expiry → upsert in `stateFile` with `status: snoozed`, `snoozed_until: <expiry>` (see `state-file.md`) |
-| **Mark as wontfix** | Any finding | Ask for finding number + reason → upsert in `stateFile` with `status: wontfix` and current `code_hash` (see `state-file.md`) |
-| **Re-run review on the fixed code** | Only after a Fix step succeeded | Re-execute Phase 1 + 2 + 2.5 + 3 on the now-modified tree |
-| **Explain a finding** | Any finding | Plain-language explanation of one finding for the user |
-| **Apply fixes (alternate scopes)** | At least one 🔴/🟠/🟡/🔵 finding exists | Full apply-fixes sub-menu incl. Fix all 🔵 / Fix by agent (use when Mode A's scopes aren't the desired set) |
-
-**Composition rules** when multiple Mode C options are selected — run in this order (supersedes any earlier ordering):
-1. **Apply fixes** (if chosen via "Apply fixes (alternate scopes)") — later actions may depend on the modified tree.
-2. **Generate tests** (confirm + Write) — right after fixes so a later re-run/delta sees the written tests.
-3. **Read-only synthesis**: Deep-dive / Ask a question / Generate fix patch / Draft commit-PR / Explain.
-4. **Publication**: Save report / Post to GitHub PR / Create ticket / Schedule (Create-ticket sits with Post-to-PR — they share the confirmation gate).
-5. **State writes**: Snooze / Wontfix.
-6. **Re-run review on fixed code** — last.
+**Termination & safety:** the queue is finite; each finding is visited at most once in Round 1; only `Fix this` / `Skip → next` / a dismissal advance, `Stop triage` and `Done with triage` exit — so no finding is re-queued and the loop always terminates. After the pass, print a compact [Fix Results](#fix-results) table for the findings that got `Fix this`. If ≥1 fix applied AND all post-fix gates pass → run the [auto-delta](#auto-delta-after-successful-apply-fixes) once, then re-present the primary menu.
 
 ## The three follow-up actions
 
@@ -142,7 +115,7 @@ Builds on Deep-dive but is driven by the user's specific question (keep both: De
 1. Prompt for the finding number (validate it exists) + a free-text question. No question → default `"Why does this happen and how would you fix it?"`.
 2. Gather, read-only: the finding's frozen evidence + suggested fix; **re-Read the full enclosing function** at `file_line` (not just the evidence line — it may have drifted); the file's diff hunk; if `toolchain.codegraphTools` is non-empty, resolved `${codegraphTools.callers}` / `${codegraphTools.callees}`; a Grep for the symbol's tests scoped by `toolchain.testPattern.suffix`.
 3. Spawn ONE agent (`subagent_type: general-purpose`, `model: sonnet`) with an XML-tagged prompt (`<finding>`, `<question>`, `<enclosing_function>`, `<diff_hunk>`, `<callers_callees>`, `<sibling_tests>`): answer the question, then give 1–2 fix approaches with tradeoffs. The agent has NO Edit/Write — it never changes code.
-4. Print the answer; return to the caller (Mode C → primary menu; Triage Round 3 → that finding's Round 1). It is NOT a multi-turn chat loop.
+4. Print the answer; return to the caller (primary menu; from Triage → that finding's Round 1). It is NOT a multi-turn chat loop.
 
 ### Generate tests for a finding
 A deliberate, **confirmed** exception to the "never create new files as part of a fix" guardrail — that rule stays in force for AUTO-fixes; this is a separate, user-initiated, confirmation-gated action. Also auto-offered after a clean apply-fixes/auto-delta.
@@ -169,16 +142,17 @@ Portable by design — review-all is project-agnostic, so it never hardcodes a t
 4. **Batch:** multiple findings → ONE issue per finding (separately triageable), never a merged blob; confirm the batch count first. In Tier 3, one markdown file per finding.
 5. Return to the caller.
 
-## Apply-fixes sub-menu
+## Apply-fixes routine
 
-Reached via Mode A (a chosen scope) and via Triage Round 1 (`Fix this`, single finding). The scope→severity mapping:
+Reached via the primary menu's fix options, an `Other` expression, `fix <agent-id>`, and Triage Round 1 (`Fix this`, single finding). The scope→finding mapping:
 
 | Scope source | Severity set |
 |--------------|--------------|
-| Fix critical (Recommended) | 🔴 |
-| Fix critical + important | 🔴 + 🟠 |
-| Fix critical + important + debt | 🔴 + 🟠 + 🟡 |
-| Custom (C/I/D/S + #IDs) | UNION of expanded severity letters and explicit IDs/ranges (see grammar above) |
+| `Fix <tiers> (#a–b)` (Recommended) | every 🔴 + 🟠 + 🟡 |
+| `Fix must-fix only (#a–b)` | 🔴 + 🟠 |
+| `Fix suggested (#a–b)` | 🔵 |
+| `Other` expression (C/I/D/S + #IDs) | UNION of expanded severity letters and explicit IDs/ranges (see grammar above) |
+| `fix <agent-id>` | every 🔴/🟠/🟡/🔵 finding raised by that agent |
 | Triage `Fix this` | the single finding selected |
 
 For each finding in the chosen scope (file-then-line order):
@@ -211,17 +185,17 @@ If a previously-passing gate now fails: list failing output, suggest `git diff` 
 
 ## Loop
 
-After any non-terminal choice — a completed fix, a finished triage pass, or any Mode C item — re-present the PRIMARY three-mode menu with updated state (e.g., "Re-run review on fixed code" becomes available in Mode C after fixes apply). Continue until the user picks **Skip / done**.
+After any non-terminal choice — a completed fix, a finished triage pass, or any free-text action — re-present the primary menu rebuilt from the updated state: fixed, snoozed and wontfixed findings drop out of the ID ranges, and after a successful fix the `Other` hint names `re-run` (Re-run review on the fixed code). Continue until the user picks **Done**.
 
 ## Auto-delta after successful apply-fixes
 
-When apply-fixes (Mode A, Triage, or Mode C alternate-scopes) completes AND **all** post-fix gates pass (Typecheck ✅ + Lint ✅ + Tests ✅, ignoring any gate that was N/A or SKIP before fixes), the orchestrator runs a scoped **delta review** before re-presenting the menu:
+When apply-fixes (a primary fix option, an `Other` expression, `fix <agent-id>`, or Triage) completes AND **all** post-fix gates pass (Typecheck ✅ + Lint ✅ + Tests ✅, ignoring any gate that was N/A or SKIP before fixes), the orchestrator runs a scoped **delta review** before re-presenting the menu:
 
 - Scope = the just-edited files only (the actual fix target set, not the original review target).
 - Phases run: 1 → 2 (parallel agents on the narrow slice) → 2.5 (verify) → 3 (delta report).
 - Delta report appended to the existing report under a new `## Post-fix delta` section. No new file written.
 - **Also auto-offer "Generate tests for a finding"** for any just-fixed finding whose source file gained no co-located test — surface it as a one-line suggestion before re-opening the menu.
-- Standard menu then re-opens, now including "Re-run review on fixed code" for the full target if user wants the broader pass.
+- The primary menu then re-opens; its `Other` hint now offers `re-run` (Re-run review on the fixed code) for the full target if the user wants the broader pass.
 
 **Do NOT trigger auto-delta** when:
 - Any post-fix gate failed or timed out → surface the gate output, let user decide (rollback, manually fix, etc.).

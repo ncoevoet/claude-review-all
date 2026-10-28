@@ -40,16 +40,25 @@ need "$SKILL" 'zero tool calls between the report text and the menu call' "zero-
 need "$SKILL" 'Full report above' "verdict summary in menu question text"
 need "$SKILL" 'Bash\(gh pr comment:\*\)' "allowed-tools: gh pr comment"
 need "$SKILL" 'Bash\(gh issue create:\*\)' "allowed-tools: gh issue create"
-need "$SKILL" 'Fix by scope' "primary mode: Fix by scope"
-need "$SKILL" 'Triage one-by-one' "primary mode: Triage one-by-one"
-need "$SKILL" 'More actions' "primary mode: More actions"
-need "$SKILL" 'Skip / done' "primary mode: Skip / done"
+need "$SKILL" 'in ONE step' "one-step primary menu (no scope sub-menu)"
+need "$SKILL" 'Fix must-fix only' "primary option: Fix must-fix only"
+need "$SKILL" 'Triage one-by-one' "primary option: Triage one-by-one"
+need "$SKILL" '\*\*Done\*\*' "primary option: Done"
+need "$SKILL" 'at least 2 options' "every menu has at least 2 options"
 
-# --- phase-4-menu.md: three modes, the 4-cap rule, Custom grammar, new actions ---
-need "$MENU" 'Fix by scope' "Mode A: Fix by scope"
-need "$MENU" 'Triage one-by-one' "Mode B: Triage one-by-one"
-need "$MENU" 'More actions' "Mode C: More actions"
-need "$MENU" 'Skip / done' "Skip / done (dominant terminator)"
+# --- phase-4-menu.md: one-step menu, the 4-cap rule, Other grammar, free-text actions ---
+need "$MENU" 'Primary menu — one step' "one-step primary menu section"
+need "$MENU" 'Fix must-fix only' "primary option: Fix must-fix only"
+need "$MENU" 'Fix suggested' "primary option when only 🔵: Fix suggested"
+need "$MENU" 'Ask about a finding' "primary option when only ⚪/appendix/🔬: Ask about a finding"
+need "$MENU" 'Triage one-by-one' "primary option: Triage one-by-one"
+need "$MENU" 'range form' "ID labels written as ranges"
+need "$MENU" 'at least 2 options' "every menu has at least 2 options"
+need "$MENU" '## Free-text actions' "free-text actions table"
+need "$MENU" 'Re-run review on the fixed code' "free-text action: Re-run review on the fixed code"
+need "$MENU" 'Fix by agent' "free-text action: Fix by agent"
+need "$MENU" 'Deep-dive' "free-text action: Deep-dive"
+need "$MENU" 'Post to PR' "free-text action: Post to PR"
 need "$MENU" 'array too_big' ">4-findings cap crash warning"
 need "$MENU" 'caps option' "AskUserQuestion 4-option cap note"
 need "$MENU" 'C = .*Critical' "Custom expression grammar legend"
@@ -63,10 +72,9 @@ need "$MENU" 'Full report above' "verdict summary in menu question text"
 need "$MENU" 'no appendix AND no 🔬 unverified findings \(nothing scoring' "only-skip condition includes unverified clause (mandatory-menu gate)"
 need "$MENU" 'no appendix AND no 🔬 unverified findings → skip Phase 4' "only-skip condition includes unverified clause (assembly algorithm)"
 
-# --- phase-4-menu.md: triage micro-menu — all six verbs + the 6-vs-4 resolution ---
+# --- phase-4-menu.md: triage micro-menu — Round 1 + Round 2 verbs, 4-cap resolution ---
 need "$MENU" 'Fix this' "triage verb: Fix this"
-need "$MENU" 'Ask a question' "triage verb: Ask a question"
-need "$MENU" 'Create ticket' "triage verb: Create ticket"
+need "$MENU" 'Stop triage' "triage verb: Stop triage"
 need "$MENU" 'Snooze' "triage verb: Snooze"
 need "$MENU" 'Wontfix' "triage verb: Wontfix"
 need "$MENU" 'Skip .* next' "triage verb: Skip -> next"
@@ -80,10 +88,17 @@ need "$MENU" 'issue-<finding>-' "Create-ticket Tier-3 markdown fallback"
 need "$REPORT" 'Merge-readiness' "report: merge-readiness line"
 need "$REPORT" 'new.*modified.*deleted' "report: change-type buckets"
 
-# --- README.md: the three modes named (anti-drift doc sync) ---
-need "$README" 'Fix by scope' "README: Fix by scope mode"
-need "$README" 'Triage' "README: Triage mode"
-need "$README" 'More actions' "README: More actions mode"
+# --- README.md: the one-step menu named (anti-drift doc sync) ---
+need "$README" 'Triage' "README: Triage option"
+need "$README" '`Other`' "README: free-text Other field"
+
+# --- negative: the retired three-mode menu must not drift back ---
+for f in "$SKILL" "$MENU" "$README"; do
+  if grep -nE 'Mode [ABC]\b|More actions|Fix by scope|Skip / done|Round 3' "$f" >&2; then
+    echo "check-phase4-menu: RETIRED menu term in $(basename "$f") (lines above)" >&2
+    rc=1
+  fi
+done
 
 if [[ $rc -eq 0 ]]; then
   echo "check-phase4-menu: CLEAN"

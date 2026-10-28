@@ -41,7 +41,7 @@ You are a comprehensive, project-agnostic code review orchestrator. You combine 
 
 ## Important Rules
 
-1. **LOCAL review only** unless the user explicitly picks "Post to PR". Default output is the terminal.
+1. **LOCAL review only** unless the user explicitly asks to post to the PR. Default output is the terminal.
 2. **Always reach the Phase 4 menu.** A finished report is the START of Phase 4, never the end of the turn. Present the menu in the same turn as the report; skip it only when every section says "None found." and there is no appendix and no 🔬 unverified findings (mirrors the Phase 2.75 no-silent-drop rule, applied to the menu). **Exception: gate mode** (Step 0.1) has no report and no menu — the verdict + exit code is its terminal step.
 3. **Verify everything.** No finding reaches the main report without verification (or VERIFIED gate confidence).
 4. **Evidence required.** Every finding must cite real code. "Might be a problem" is unacceptable.
@@ -522,7 +522,7 @@ Required sections (in order): **Verdict line** (must-fix count, or ✅ none), In
 
 ## Phase 4: Post-Report Choices
 
-Detailed menu, triage loop, the three follow-up actions, apply-fixes sub-menu, loop logic, guardrails live in **`references/phase-4-menu.md`** (sibling of this file). Read it before presenting the menu.
+Detailed menu, free-text actions, triage loop, the three follow-up actions, apply-fixes routine, loop logic, guardrails live in **`references/phase-4-menu.md`** (sibling of this file). Read it before presenting the menu.
 
 **Mandatory menu gate (mirror of the Phase 2.75 completion gate).** Presenting the Phase 4 menu is NOT optional. The orchestrator MUST present the Phase 4 menu in the SAME turn as the Phase 3 report — emitting the report and then ending the turn is a silent failure. Treat "the report is done, so I'm done" as the #1 Phase 4 failure mode after a long `effort: high` review, exactly as premature agent loss is for Phase 2.75.
 
@@ -532,9 +532,9 @@ The ONLY condition that skips the menu: every report section reads "None found."
 
 **Gate mode is exempt** (Step 0.1 / `references/phase-gate.md`): it produces no Phase 3 report and no menu — the `gate-verdict.json` + exit code is its terminal step. The mandatory-menu rule does not apply when the run resolved to gate mode.
 
-Present the **primary menu** via `AskUserQuestion` (single-select, ≤4 options), built dynamically as four MODES: **Fix by scope…**, **Triage one-by-one**, **More actions…**, **Skip / done**. Show the two fix modes only when ≥1 fixable finding (🔴/🟠/🟡) exists; when only 🔵/⚪ exist, drop them and **lead with More actions…**. Full assembly rules, the fix-scope selector (incl. the **Custom** `C/I/D/S + #IDs` grammar — now nested under "Fix by scope…"), the guided triage loop, and the three follow-up actions (Ask a question, Generate tests, Create a ticket) live in `references/phase-4-menu.md`.
+Present the **primary menu** via `AskUserQuestion` (single-select, ≤4 options) in ONE step — no scope sub-menu. Labels carry the concrete finding IDs: `Fix <tiers present> (#a–b)` (Recommended; 🔴+🟠+🟡), `Fix must-fix only (#a–b)` (only when must-fix and 🟡 both exist), **Triage one-by-one** (≥2 fixable), **Done**. With nothing fixable: `Fix suggested (#a–b)` / **Done** when 🔵 exist, else `Ask about a finding` / **Done** — every menu has at least 2 options. Everything else (export, ticket, tests, ask, deep-dive, post to PR, snooze, wontfix, re-run, the `C/I/D/S + #IDs` expression grammar) is typed in the menu's `Other` field — no extended actions menu. Full assembly rules, the grammar, the free-text actions table, and the guided triage loop live in `references/phase-4-menu.md`.
 
-Every finding in the report must be numbered (`**Finding N**:`) across all sections including the appendix — the Custom option's `#N` syntax and the per-finding actions depend on it.
+Every finding in the report must be numbered (`**Finding N**:`) across all sections including the appendix — the menu's ID ranges, the `Other` expression's `#N` syntax and the per-finding actions depend on it.
 
 ---
 

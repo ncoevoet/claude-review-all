@@ -36,11 +36,11 @@ Helps the user calibrate findings.
 
 ## Numbering
 
-Number findings continuously across all sections (Finding 1, 2, 3…) for Phase 4 reference. **Mandatory**: every finding — Critical, Important, Debt, Suggested, Questions, AND Appendix — MUST be prefixed with `**Finding N**:` using a single global counter. The Phase 4 menu's **Custom** option (`#N` syntax) depends on this. Never omit the number, never reset between sections, never reuse a number.
+Number findings continuously across all sections (Finding 1, 2, 3…) for Phase 4 reference. **Mandatory**: every finding — Critical, Important, Debt, Suggested, Questions, AND Appendix — MUST be prefixed with `**Finding N**:` using a single global counter. The Phase 4 menu's ID ranges and its `Other` expression (`#N` syntax) depend on this. Never omit the number, never reset between sections, never reuse a number.
 
 ## Severity-letter emphasis
 
-Section headers MUST bold the leading letter so users read legal Custom-menu tokens directly from the report:
+Section headers MUST bold the leading letter so users read legal `Other`-expression tokens directly from the report:
 
 - `## 🔴 **C**ritical`
 - `## 🟠 **I**mportant`
