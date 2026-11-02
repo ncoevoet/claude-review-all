@@ -15,8 +15,11 @@
 #                             review. LEAVE UNSET to measure at the real operating
 #                             point: on Opus 4.8, low/medium effort SUPPRESSES recall
 #                             (the model reports fewer of the bugs it actually found),
-#                             so a run at --effort low understates the skill. The skill
-#                             pins `effort: high` in its frontmatter as a floor anyway.
+#                             so a run at --effort low understates the skill. The skill's
+#                             `effort: high` covers only the orchestrator's first turn.
+#                             Subagent effort does NOT come from this variable: every
+#                             spawn passes its own (persona `effort:`, `verifierEffort`,
+#                             `agentEffort`) — vary those via REVIEW_ALL_CONFIG_JSON.
 #   REVIEW_ALL_EVAL_MODEL=M   pass --model M to BOTH claude -p calls (the review
 #                             and the LLM judge). LEAVE UNSET and each call runs at
 #                             whatever tier the CLI happens to default to, so any
@@ -84,7 +87,7 @@ review_once() { ( cd "$1" && "${to[@]}" claude -p "$2" --dangerously-skip-permis
 # number. An unlabelled results file is indistinguishable from one measured at a
 # different default, which is exactly how a tier decision ends up resting on a
 # run nobody can reproduce.
-config_line="CONFIG,model=${REVIEW_ALL_EVAL_MODEL:-<cli-default:UNPINNED>},effort=${REVIEW_ALL_EVAL_EFFORT:-<skill-floor:high>},runs=${REVIEW_ALL_EVAL_RUNS:-1},timeout=${REVIEW_ALL_EVAL_TIMEOUT:-420},config_json=${REVIEW_ALL_CONFIG_JSON:-<none>}"
+config_line="CONFIG,model=${REVIEW_ALL_EVAL_MODEL:-<cli-default:UNPINNED>},effort=${REVIEW_ALL_EVAL_EFFORT:-<skill-first-turn:high>},agent_effort=per-spawn,runs=${REVIEW_ALL_EVAL_RUNS:-1},timeout=${REVIEW_ALL_EVAL_TIMEOUT:-420},config_json=${REVIEW_ALL_CONFIG_JSON:-<none>}"
 echo "$config_line"
 # One CONFIG.txt per kept case dir: the CONFIG line plus what the skill under test
 # was (git HEAD, dirty flag, installed cache path the CLI actually loads).

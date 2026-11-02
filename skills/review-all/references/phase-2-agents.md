@@ -60,18 +60,18 @@ Rules:
 
 **Spawn conditions are data, not prose.** Each condition below names a *file class* assigned by `scripts/file-classes.json` and evaluated by `scripts/select-agents.py`. The orchestrator spawns what the script returns; it does not re-derive these conditions by reading the diff.
 
-| # | Agent | Persona | Model | Spawn condition |
-|---|-------|---------|-------|-----------------|
-| 1 | Standards & Clarity | `01-standards.md` | `sonnet` | Always |
-| 2 | Bugs & Security | `02-bugs-security.md` | `opus` | Always |
-| 3 | DRY & Code Smells | `03-dry-smells.md` | `sonnet` | Always |
-| 4 | Consistency & History | `04-consistency-history.md` | `sonnet` | Always |
-| 5 | Simplification | `05-simplification.md` | `sonnet` | Always |
-| 6 | Security Deep Dive | `06-security-deep-dive.md` | `opus` | Any file with class `security` |
-| 7 | Performance | `07-performance.md` | `opus` | Always |
-| 8 | Test Quality | `08-test-quality.md` | `sonnet` | Any file with class `test`, OR any Added file with class `code` |
-| 9 | API & Contract | `09-api-contract.md` | `opus` | Any file with class `contract` |
-| 10 | A11y & i18n | `10-a11y-i18n.md` | `sonnet` | Any file with class `ui` or `i18n` |
+| # | Agent | Persona | Model | Effort | Spawn condition |
+|---|-------|---------|-------|--------|-----------------|
+| 1 | Standards & Clarity | `01-standards.md` | `sonnet` | `medium` | Always |
+| 2 | Bugs & Security | `02-bugs-security.md` | `opus` | `xhigh` | Always |
+| 3 | DRY & Code Smells | `03-dry-smells.md` | `sonnet` | `high` | Always |
+| 4 | Consistency & History | `04-consistency-history.md` | `sonnet` | `high` | Always |
+| 5 | Simplification | `05-simplification.md` | `sonnet` | `medium` | Always |
+| 6 | Security Deep Dive | `06-security-deep-dive.md` | `opus` | `xhigh` | Any file with class `security` |
+| 7 | Performance | `07-performance.md` | `opus` | `high` | Always |
+| 8 | Test Quality | `08-test-quality.md` | `sonnet` | `high` | Any file with class `test`, OR any Added file with class `code` |
+| 9 | API & Contract | `09-api-contract.md` | `opus` | `high` | Any file with class `contract` |
+| 10 | A11y & i18n | `10-a11y-i18n.md` | `sonnet` | `medium` | Any file with class `ui` or `i18n` |
 
 Every axis is `spawn: false` when the reviewable set is empty — a review whose every changed file was excluded spawns nothing and says so.
 
@@ -93,6 +93,20 @@ The split is by **what the axis has to prove**, not by how important it feels:
 Precision is preserved from the other end regardless of tier: **every finding still passes the Phase 2.5 hostile verifier**, so a weaker axis over-flagging costs a verifier call, not a false positive in the report. The asymmetric risk is a missed bug, which is why the behavioral axes stay on `opus`.
 
 Verifiers are out of scope for this table — they already spawn with an explicit model, the `verifierModel` config tier (default `haiku`, see `config-keys.md`), and that covers the Step 2.5b-vote passes too.
+
+## Effort per axis
+
+**Every spawn also passes an explicit `effort`.** The table's Effort column is the source of truth; each persona repeats it in frontmatter `effort:`. An `agentEffort` entry in `.claude/review-all.json` (keyed by persona id, e.g. `"02-bugs-security"`) overrides the column. An agent whose persona declares no `effort` — anything added via `extraAgents` — spawns at `high`. The verifier is not covered by that default: it has no `effort:` on purpose and always spawns at `verifierEffort`.
+
+Why it must be per spawn: the skill's own `effort: high` frontmatter applies only to the turn the skill was invoked in. Every later turn — each background-agent completion, each Phase 4 menu answer — runs at the session's effort (`medium` by default on Opus/Sonnet/Haiku 5.5 in Claude Code, per the model-config docs). Measured on two real reviews' transcripts: the axes ran at `high`, the verifiers at `medium`. Omitting `effort` therefore does not mean "the skill's floor"; it means whatever turn the spawn happened to land in.
+
+The level follows what the axis must *do*, not how important it feels:
+
+- **`xhigh` — simulate execution across lines or files.** Bugs & Security, Security Deep Dive. A cross-line mechanism or a source→sink trace is exactly where stopping early loses the finding. Models without `xhigh` fall back to `high`.
+- **`high` — the axis depends on searching beyond the slice.** Performance, API & Contract (consumer lookup), DRY & Smells (existing-helper lookup), Consistency & History (`git log`/`blame`), Test Quality (do the assertions exercise the change). Anthropic's effort docs warn that lower effort is "more likely to skip a search, stop early, or skip a check".
+- **`medium` — checklist against evidence already in the slice.** Standards, Simplification, A11y & i18n. Output is mostly 🟡/🔵 and capped by the shared quotas.
+
+No axis runs at `low` by default: skipping a check is the opposite of what a reviewer is for. An `agentEffort` override may still set it — that is the project's explicit choice. The `medium` and `xhigh` choices are not yet eval-measured — `agentEffort` exists so a project can raise or lower one axis without editing the persona.
 
 ## Checkpoint resume (per axis)
 
@@ -129,7 +143,7 @@ A single agent's diff slice can blow past the model context window on big refact
 If `slice_files > chunkMaxFiles` (default `40`) OR `slice_bytes > chunkMaxBytes` (default `200000`):
 
 1. Split the slice into N chunks, each respecting both limits. Prefer splitting on file boundaries; only split inside a file if a single file exceeds the byte limit.
-2. Spawn the agent N times in parallel, each with: persona + `_shared.md` + the chunk + `"chunk index i of N — only review the files in this chunk; do NOT speculate about omitted files"`.
+2. Spawn the agent N times in parallel, each with the axis's own `model` and `effort` (every chunk, including any spawned in a later wave), and: persona + `_shared.md` + the chunk + `"chunk index i of N — only review the files in this chunk; do NOT speculate about omitted files"`.
 3. Merge findings by `root_cause_key` before handing to Phase 2.5. Duplicate keys across chunks collapse into one, with `confirmed_by` listing chunk indices that flagged it.
 
 Both thresholds configurable via `.claude/review-all.json` keys `chunkMaxFiles` and `chunkMaxBytes`. Set either to `0` to disable that limit.
@@ -140,6 +154,6 @@ Chunked agent status in the Phase 2.75 map: an agent is `returned` only when **a
 
 - Spawn every Phase 2 agent with an explicit wall-clock budget. Default `agentTimeoutSeconds: 600`; override via `.claude/review-all.json`.
 - A timed-out, failed, or retried-then-failed agent is **never checkpointed** — only a clean return is (see *Checkpoint resume*).
-- If an agent exceeds its budget or returns malformed output, re-spawn ONCE with the preamble: `"Previous run failed (<timeout|schema|empty>). Re-attempting with same inputs."`.
+- If an agent exceeds its budget or returns malformed output, re-spawn ONCE, with the same `model` and `effort`, with the preamble: `"Previous run failed (<timeout|schema|empty>). Re-attempting with same inputs."`.
 - After one retry, surrender — do not loop. Phase 2.75 surfaces the missing agent in the report banner.
 - Track per-agent status in an internal map: `pending | running | returned | failed`. Phase 2.75 reads this map.

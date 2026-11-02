@@ -71,7 +71,7 @@ No menu lists these — the user names them in `Other` (or in a later message). 
 | **Create a ticket** — `ticket #N` (or several IDs) | [Create a ticket/issue from a finding](#create-a-ticketissue-from-a-finding), confirmation-gated |
 | **Generate tests** — `tests #N` | [Generate tests for a finding](#generate-tests-for-a-finding), confirmation-gated |
 | **Ask a question** — `ask #N <question>` | [Ask a follow-up question about a finding](#ask-a-follow-up-question-about-a-finding) |
-| **Deep-dive** — `deep-dive #N` | Spawn focused agent (`subagent_type: general-purpose`, `model: opus`) that returns full callers/callees, root-cause analysis, 2-3 fix strategies with tradeoffs |
+| **Deep-dive** — `deep-dive #N` | Spawn focused agent (`subagent_type: general-purpose`, `model: opus`, `effort: xhigh`) that returns full callers/callees, root-cause analysis, 2-3 fix strategies with tradeoffs |
 | **Post to PR** — `post to PR` | Only when a PR exists for the current branch (probe `gh pr view`): comment the report with `gh pr comment` — show the body and confirm first |
 | **Snooze** — `snooze #N` | Ask reason + expiry → upsert in `stateFile` with `status: snoozed`, `snoozed_until: <expiry>` (see `state-file.md`) |
 | **Wontfix** — `wontfix #N` | Ask reason → upsert in `stateFile` with `status: wontfix` and current `code_hash` (see `state-file.md`) |
@@ -108,13 +108,13 @@ Reached via Primary → **Triage one-by-one**. A guided loop that walks each fin
 
 ## The three follow-up actions
 
-**Every Phase 4 spawn names its model, exactly as the Phase 2 axes do** (`SKILL.md` → *Spawn contract*). An omitted `model` silently falls back to the session's own tier, so the same menu action costs whatever the user happened to start the review on. The tier follows what the agent has to do: Deep-dive is root-cause work → `opus`; Ask-a-question reads the evidence it is handed and reports → `sonnet`; the test generator writes code from a spec plus sibling exemplars → `sonnet`.
+**Every Phase 4 spawn names its model and its effort, exactly as the Phase 2 axes do** (`SKILL.md` → *Spawn contract*). An omitted `model` silently falls back to the session's own tier, so the same menu action costs whatever the user happened to start the review on. The tier follows what the agent has to do: Deep-dive is root-cause work → `opus`; Ask-a-question reads the evidence it is handed and reports → `sonnet`; the test generator writes code from a spec plus sibling exemplars → `sonnet`. Effort matters more here than anywhere else: a menu answer is a new turn, so an omitted `effort` runs at the session's level (`medium` by default), never at the skill's `effort: high`. Deep-dive → `xhigh` (root cause across callers; `agentEffort.deep-dive` overrides); Ask-a-question → `medium` (answers from evidence handed to it); test generator → `high` (code that must match sibling exemplars).
 
 ### Ask a follow-up question about a finding
 Builds on Deep-dive but is driven by the user's specific question (keep both: Deep-dive is canned root-cause + strategies; Ask answers a free-text question).
 1. Prompt for the finding number (validate it exists) + a free-text question. No question → default `"Why does this happen and how would you fix it?"`.
 2. Gather, read-only: the finding's frozen evidence + suggested fix; **re-Read the full enclosing function** at `file_line` (not just the evidence line — it may have drifted); the file's diff hunk; if `toolchain.codegraphTools` is non-empty, resolved `${codegraphTools.callers}` / `${codegraphTools.callees}`; a Grep for the symbol's tests scoped by `toolchain.testPattern.suffix`.
-3. Spawn ONE agent (`subagent_type: general-purpose`, `model: sonnet`) with an XML-tagged prompt (`<finding>`, `<question>`, `<enclosing_function>`, `<diff_hunk>`, `<callers_callees>`, `<sibling_tests>`): answer the question, then give 1–2 fix approaches with tradeoffs. The agent has NO Edit/Write — it never changes code.
+3. Spawn ONE agent (`subagent_type: general-purpose`, `model: sonnet`, `effort: medium`) with an XML-tagged prompt (`<finding>`, `<question>`, `<enclosing_function>`, `<diff_hunk>`, `<callers_callees>`, `<sibling_tests>`): answer the question, then give 1–2 fix approaches with tradeoffs. The agent has NO Edit/Write — it never changes code.
 4. Print the answer; return to the caller (primary menu; from Triage → that finding's Round 1). It is NOT a multi-turn chat loop.
 
 ### Generate tests for a finding
@@ -125,7 +125,7 @@ A deliberate, **confirmed** exception to the "never create new files as part of 
    - separate-tree → mirror under `tests/`/`test/` with `<suffix>`;
    - **DEGRADED** (`framework == "unknown"` OR `suffix == ""`): do NOT guess a framework. Tell the user the convention couldn't be detected, show the finding + a language-appropriate skeleton, and offer "write to <best-guess path>" vs "show only". Never fabricate a jest/pytest setup the repo doesn't use (project-agnostic principle).
 3. Glob the computed path to check existence (append vs create). Read it + 1–2 sibling tests for style, and pass them to the generator as exemplars.
-4. Spawn a generator agent (`subagent_type: general-purpose`, `model: sonnet`; read-only inputs; returns test code as text — does NOT write).
+4. Spawn a generator agent (`subagent_type: general-purpose`, `model: sonnet`, `effort: high`; read-only inputs; returns test code as text — does NOT write).
 5. **SHOW the proposed path + full test code, then CONFIRM before any Write** (`AskUserQuestion`: `Write to <path>` / `Append to existing <path>` / `Show only` / `Cancel`). Only an explicit write choice triggers `Write` (append case: Read-then-Edit — Read-before-Edit still applies).
 6. Optionally run the SCOPED test command (`<test_cmd> <path>` via `timeout`) if `toolchain.commands.test` exists.
 7. If tests FAIL: show the failure and STOP — do NOT auto-fix the test or the source (consistent with never-auto-rollback; the user decides).

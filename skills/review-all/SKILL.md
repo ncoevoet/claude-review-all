@@ -6,7 +6,7 @@ effort: high
 allowed-tools: Bash(git diff:*) Bash(git log:*) Bash(git status:*) Bash(git show:*) Bash(git merge-base:*) Bash(git blame:*) Bash(gh pr diff:*) Bash(gh pr view:*) Bash(gh pr comment:*) Bash(gh issue create:*) Bash(lsof:*) Bash(timeout:*) Bash(bash:*) Bash(python3:*) Bash(mkdir:*) Read Glob Grep Write Edit AskUserQuestion
 ---
 
-<!-- effort: high is a recall FLOOR. Per Anthropic's Opus 4.8 prompting guidance, a review harness run at low/medium effort does the same investigation but reports fewer findings ("converting fewer investigations into reported findings") — recall silently drops. `high` is Opus 4.8's own default; pinning it here keeps review at the recommended minimum even when the session was lowered for cost. Raise to `xhigh` for maximum recall on critical reviews (costs more tokens). -->
+<!-- effort: high sets the ORCHESTRATOR's effort for the turn the skill is invoked in — and only that turn (Claude Code skills docs: skill effort "applies to the rest of the current turn"). Per Anthropic's Opus prompting guidance, a review harness at low/medium effort does the same investigation but reports fewer findings, so recall silently drops. Later orchestrator turns (after a background agent completes, after a Phase 4 menu answer) run at the session's effort; no tool lever exists for those. Subagents do not rely on this line: every spawn passes its own `effort` (see Spawn contract). Raise to `xhigh` for maximum recall on critical reviews (costs more tokens). -->
 
 
 # Comprehensive Code Review Orchestrator
@@ -153,6 +153,8 @@ If `.claude/review-all.json` exists, read it. Schema (jsonc — written as plain
   "verifierTimeoutSeconds": 300,
   "verifierModel": "haiku",
   "verifierVotes": 1,
+  "verifierEffort": "high",
+  "agentEffort": {},
   "chunkMaxFiles": 40,
   "chunkMaxBytes": 200000,
   "maxFileDiffBytes": 160000,
@@ -392,9 +394,11 @@ This replaces a judgment call with a computation. The conditional axes previousl
 
 `python3` missing → spawn the full set as before.
 
-**Spawn contract — every spawn names its model and its type.** Spawn each agent as a **fresh** subagent (`subagent_type: general-purpose`; never a context-inheriting type such as `fork` — the persona plus the blocks below must be the agent's ONLY framing, and an inheriting spawn re-pays this orchestrator's whole context) and pass an **explicit `model`**. Never spawn without one: an omitted `model` silently inherits the parent session's tier, which pins mechanical axes to the same expensive tier as the bug hunters.
+**Spawn contract — every spawn names its model, its effort and its type.** Spawn each agent as a **fresh** subagent (`subagent_type: general-purpose`; never a context-inheriting type such as `fork` — the persona plus the blocks below must be the agent's ONLY framing, and an inheriting spawn re-pays this orchestrator's whole context) and pass an **explicit `model` and an explicit `effort`**. Never spawn without either: an omitted `model` silently inherits the parent session's tier, which pins mechanical axes to the same expensive tier as the bug hunters.
 
 The tier is declared per axis in the persona's own frontmatter `model:` field (`agents/<id>.md`) — read it when you read the persona and pass it verbatim. An agent whose persona declares no `model` (e.g. one added via `extraAgents`) spawns at `sonnet`. Full table and rationale in `references/phase-2-agents.md` → **Model per axis**; the split is `opus` for axes whose findings are behavioral claims (bugs, security deep dive, API contract, performance) and `sonnet` for axes that match code against a known shape (standards, DRY, consistency, simplification, test quality, a11y/i18n). Verifiers are unchanged — they already spawn with an explicit model, the `verifierModel` config tier (default `haiku`), and that includes the Step 2.5b-vote adversarial passes. **The same contract binds every Phase 4 spawn** — Deep-dive at `opus`, Ask-a-question and the test generator at `sonnet`, named at each spawn site in `references/phase-4-menu.md`; no spawn anywhere in this skill omits its `model`.
+
+The effort is declared the same way, in the persona's frontmatter `effort:` field — pass it verbatim as the Agent `effort` parameter, unless `.claude/review-all.json` → `agentEffort` names that persona id, in which case pass the override. No `effort:` (an `extraAgents` persona) → `high`. Verifiers and Step 2.5b-vote passes take `verifierEffort` (default `high`); Phase 4 spawns name theirs at the spawn site (Deep-dive `xhigh` unless `agentEffort.deep-dive` overrides it, Ask-a-question `medium`, test generator `high`). An `agentEffort` value that is not one of `low`/`medium`/`high`/`xhigh`/`max` is ignored with a one-line warning, and the spawn uses its default level — never pass an unknown level to the Agent tool, or both the spawn and its retry fail. Omitting `effort` is not "inherit this skill's `effort: high`": that frontmatter binds only the turn the skill was invoked in, and every spawn after a background completion or a menu answer lands in a new turn at the session's effort (`medium` by default). Rationale per axis in `references/phase-2-agents.md` → **Effort per axis**.
 
 **Checkpoint resume — never re-run an axis that already finished.** Once the spawn set is final (spawn conditions + `extraAgents`/`skipAgents`), ask the checkpoint store what is already done:
 
@@ -470,7 +474,10 @@ Two-step flow:
 **Spawn contract — state the model here, at the spawn site.** Every verifier spawns
 `subagent_type: general-purpose` with an explicit `model` read from the `verifierModel` config key
 (`.claude/review-all.json`; **default `haiku`** when the file or the key is absent — see
-`references/config-keys.md`). The same tier binds the Step 2.5b-vote passes. Verification is a
+`references/config-keys.md`) and an explicit `effort` read from `verifierEffort` (**default `high`**).
+The same tier and effort bind the Step 2.5b-vote passes. Verifiers are spawned after the axes
+return — a new turn — so without an explicit `effort` they ran at the session's `medium`
+(observed in two real reviews' transcripts); their job is checks, which is what lower effort skips. Verification is a
 constrained re-read against a JSON schema, not open-ended reasoning: haiku is the right tool, and
 promoting it is a deliberate config change (`verifierModel: "sonnet"`), never a default.
 
@@ -495,8 +502,8 @@ When `verifierVotes > 1` (config, default `1`), 🔴/🟠 survivors get majority
 
 Before entering Phase 3, the orchestrator MUST verify:
 
-1. **Every spawned agent returned.** Compare the actual return set against the planned spawn list from Phase 2 (after applying `extraAgents`/`skipAgents`). If any agent is missing or its result is empty due to timeout/error → re-spawn that one agent once. An axis **resumed from checkpoint** counts as returned — its findings are in hand — and is never re-spawned by this gate; conversely an axis that fails here is never checkpointed, so the next run re-runs it.
-2. **Every verifier returned valid JSON.** Each verifier output must parse and contain, per finding: `finding_id`, `root_cause_key`, `score` (0–100), `verdict` (`keep`/`appendix`/`drop`/`unverified`), `claim_class` (`static`/`runtime`/`data`/`rendering`), `reason`, `reread_evidence` — plus a non-null `needs_observation` whenever the verdict is `unverified`. Malformed output → re-spawn the verifier once with explicit "your previous output failed schema validation: <reason>" preamble. Note: retry re-verifies the **entire batch** (same input set) — this is the documented token cost of a malformed verifier response; do not attempt partial salvage.
+1. **Every spawned agent returned.** Compare the actual return set against the planned spawn list from Phase 2 (after applying `extraAgents`/`skipAgents`). If any agent is missing or its result is empty due to timeout/error → re-spawn that one agent once, with the same `model` and `effort` as its first spawn (a re-spawn always lands in a later turn, so an omitted `effort` silently drops to the session level). An axis **resumed from checkpoint** counts as returned — its findings are in hand — and is never re-spawned by this gate; conversely an axis that fails here is never checkpointed, so the next run re-runs it.
+2. **Every verifier returned valid JSON.** Each verifier output must parse and contain, per finding: `finding_id`, `root_cause_key`, `score` (0–100), `verdict` (`keep`/`appendix`/`drop`/`unverified`), `claim_class` (`static`/`runtime`/`data`/`rendering`), `reason`, `reread_evidence` — plus a non-null `needs_observation` whenever the verdict is `unverified`. Malformed output → re-spawn the verifier once (same `verifierModel` and `verifierEffort`) with explicit "your previous output failed schema validation: <reason>" preamble. Note: retry re-verifies the **entire batch** (same input set) — this is the documented token cost of a malformed verifier response; do not attempt partial salvage.
 3. **Every gate has a terminal state.** Typecheck/Lint/Tests/Spec Existence/Dependencies must each be one of `PASS|FAIL|SKIP|TIMEOUT|N/A`. No `running`, no missing entries.
 
 If after one retry an agent or verifier still has not returned cleanly:

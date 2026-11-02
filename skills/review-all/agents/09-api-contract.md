@@ -2,6 +2,7 @@
 name: api-contract
 description: Detect breaking changes to public APIs, exported types, schemas, REST routes, and DB migrations. Flags consumer-impacting changes that need coordination.
 model: opus
+effort: high
 ---
 
 # Agent 9: API & Contract

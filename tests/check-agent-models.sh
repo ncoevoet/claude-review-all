@@ -28,8 +28,9 @@ AGENTS_DIR="$ROOT/skills/review-all/agents"
 README="$ROOT/README.md"
 MENU="$ROOT/skills/review-all/references/phase-4-menu.md"
 VERIFIER="$ROOT/skills/review-all/agents/verifier.md"
+VERIFIER_DOC="$ROOT/skills/review-all/references/phase-2.5-verification.md"
 
-for f in "$SKILL" "$AGENTS_DOC" "$KEYS" "$README" "$MENU" "$VERIFIER"; do
+for f in "$SKILL" "$AGENTS_DOC" "$KEYS" "$README" "$MENU" "$VERIFIER" "$VERIFIER_DOC"; do
   [[ -f "$f" ]] || { echo "check-agent-models: missing file $f" >&2; exit 2; }
 done
 [[ -d "$AGENTS_DIR" ]] || { echo "check-agent-models: missing dir $AGENTS_DIR" >&2; exit 2; }
@@ -73,6 +74,32 @@ if ! diff_out=$(diff <(echo "$frontmatter") <(echo "$table")); then
   rc=1
 fi
 
+# --- half 1b: frontmatter effort: vs the table's Effort column ---
+# Effort is the second per-spawn setting. The skill's own `effort: high` binds
+# only the turn it was invoked in, so a spawn that omits `effort` lands at the
+# session level (observed: verifiers at medium). Same set-diff shape as model.
+fm_effort="$(for f in "$AGENTS_DIR"/[0-9][0-9]-*.md; do
+  e=$(awk 'NR==1&&$0!="---"{exit} NR>1&&/^---$/{exit} /^effort:[[:space:]]*/{sub(/^effort:[[:space:]]*/,""); print; exit}' "$f")
+  printf '%s %s\n' "$(basename "$f")" "${e:-MISSING}"
+done | LC_ALL=C sort)"
+table_effort="$(sed -n 's/^|[^|]*|[^|]*| *`\([0-9][0-9][^`]*\.md\)` *| *`[a-z]*` *| *`\([a-z]*\)` *|.*/\1 \2/p' \
+  "$AGENTS_DOC" | LC_ALL=C sort)"
+if [[ -z "$table_effort" ]]; then
+  echo "check-agent-models: extracted no Effort column from phase-2-agents.md — extractor broken" >&2
+  exit 2
+fi
+bad="$(grep -vE ' (medium|high|xhigh|max)$' <<<"$fm_effort" || true)"
+if [[ -n "$bad" ]]; then
+  echo "check-agent-models: persona effort missing or not one of medium|high|xhigh|max (low is never allowed):" >&2
+  echo "$bad" | sed 's/^/  - /' >&2
+  rc=1
+fi
+if ! diff_out=$(diff <(echo "$fm_effort") <(echo "$table_effort")); then
+  echo "check-agent-models: persona effort: and phase-2-agents.md Effort column diverged:" >&2
+  echo "$diff_out" | sed 's/^/  /' >&2
+  rc=1
+fi
+
 # --- half 2: the rules that live only in prose ---
 need() {  # need <file> <ERE> <label>
   if ! grep -qiE "$2" "$1"; then
@@ -105,6 +132,16 @@ if grep -qiE 'inherits the session tier' "$MENU"; then
   rc=1
 fi
 
+# Phase 4: every spawn site also carries an explicit `effort: <level>` — a menu
+# answer is always a new turn, so an omitted effort runs at the session level.
+p4_effort="$(grep -E 'Spawn [A-Za-z ]+agent' "$MENU" | grep -cE '`effort: (medium|high|xhigh|max)`' || true)"
+if [[ "$p4_spawns" -ne "$p4_effort" ]]; then
+  echo "check-agent-models: phase-4-menu.md has $p4_spawns spawn site(s) but $p4_effort with an effort (expected equal):" >&2
+  grep -nE 'Spawn [A-Za-z ]+agent' "$MENU" \
+    | grep -vE 'Spawn .*`effort: (medium|high|xhigh|max)`' | sed 's/^/  - /' >&2
+  rc=1
+fi
+
 # verifierModel: an explicit tier only. `inherit` is not a model id, so a spawn
 # carrying it is refused; the row must offer haiku|sonnet|opus and nothing else.
 vm_row="$(grep -E '^\| *`verifierModel` *\|' "$KEYS" || true)"
@@ -126,8 +163,16 @@ need "$VERIFIER" 'verifierModel' "verifier.md names the config tier it spawns at
 need "$MENU" 'Every Phase 4 spawn names its model' "phase-4-menu.md states the Phase 4 spawn contract"
 need "$SKILL" 'Phase 4 spawn' "SKILL.md extends the spawn contract to Phase 4"
 
+need "$SKILL" 'explicit .?model. and an explicit .?effort' "SKILL.md requires an explicit effort on every spawn"
+need "$SKILL" 'No .?effort:.*\(an .?extraAgents.? persona\) → .?high' "SKILL.md gives the default effort for a persona that declares none"
+need "$SKILL" 'explicit .?effort. read from .?verifierEffort' "SKILL.md verifier spawn site names verifierEffort"
+need "$AGENTS_DOC" 'Effort per axis' "phase-2-agents.md documents the per-axis effort split"
+need "$VERIFIER_DOC" 'verifierEffort' "phase-2.5-verification.md names verifierEffort for batch and vote spawns"
+need "$KEYS" '^\| *`verifierEffort`' "config-keys.md has a verifierEffort row"
+need "$KEYS" '^\| *`agentEffort`' "config-keys.md has an agentEffort row"
+
 if [[ $rc -eq 0 ]]; then
-  echo "check-agent-models: CLEAN ($(echo "$frontmatter" | wc -l | tr -d ' ') axes + $p4_pinned phase-4 spawns + verifier pinned)"
+  echo "check-agent-models: CLEAN ($(echo "$frontmatter" | wc -l | tr -d ' ') axes model+effort + $p4_pinned phase-4 spawns model+effort + verifier pinned)"
 else
   echo "check-agent-models: FAIL — see above." >&2
 fi

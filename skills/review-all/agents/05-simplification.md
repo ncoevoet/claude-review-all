@@ -2,6 +2,7 @@
 name: simplification
 description: Review changed code for opportunities to simplify while preserving ALL functionality — reduce nesting, eliminate dead branches, improve names, simplify defensive code.
 model: sonnet
+effort: medium
 ---
 
 # Agent 5: Simplification

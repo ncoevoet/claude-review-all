@@ -98,7 +98,7 @@ The skill grew out of several years of daily use of Claude for code review on re
 
 **Eval suite.** There are 99 labeled cases in `skills/review-all/evals/`: 47 TypeScript, 20 Java, 11 Python, 11 JavaScript, 5 Go, 4 Rust, 1 generated large diff. Each case is counted once, by the language of most of its fixture files. Four of them also ship a SQL migration. Most are recall cases, where a planted bug (race, leak, injection, N+1, broken contract…) must be reported. The rest are precision cases, where correct code that looks suspicious must not be flagged. Some cases cover gate mode, the rules cache, `REVIEW.md`, a toolchain whose tests really fail, and dismissal state that carries across runs.
 
-**Runner.** `scripts/run-evals-headless.sh` builds each fixture into a throwaway git repo and runs `/review-all` there with `claude -p`. A second LLM call then grades the report against the case's rubric. `eval-scorecard.py` adds up recall, precision and F1. Runs use `REVIEW_ALL_EVAL_RUNS=3` or more and compare pass rates, because a single run is noisy. `REVIEW_ALL_EVAL_MODEL` pins the model so two runs can be compared. `REVIEW_ALL_EVAL_KEEP_DIR=/tmp/keep` keeps each run's report, judge output and `CONFIG.txt` under `/tmp/keep/<case-id>/`; it refuses a case directory that is not empty. `scripts/replicate-divergence.py /tmp/keep/<case-id> [more dirs…]` then prints a per-run judge and tally table and a finding-cluster by run matrix, with the `DIVERGENT` rows flagged. The idea, that variance between replicates is the signal, comes from google-research/harness2.
+**Runner.** `scripts/run-evals-headless.sh` builds each fixture into a throwaway git repo and runs `/review-all` there with `claude -p`. A second LLM call then grades the report against the case's rubric. `eval-scorecard.py` adds up recall, precision and F1. Runs use `REVIEW_ALL_EVAL_RUNS=3` or more and compare pass rates, because a single run is noisy. `REVIEW_ALL_EVAL_MODEL` pins the model so two runs can be compared. `REVIEW_ALL_EVAL_KEEP_DIR=/tmp/keep` keeps each run's report, judge output and `CONFIG.txt` under `/tmp/keep/<case-id>/`; it refuses a case directory that is not empty. `scripts/replicate-divergence.py /tmp/keep/<case-id> [more dirs…]` then prints a per-run judge and tally table and a finding-cluster by run matrix, with the `DIVERGENT` rows flagged. The idea, that variance between replicates is the signal, comes from google-research/harness2. `scripts/spawn-audit.py <session.jsonl>` reads a session's subagent transcripts and prints the model and reasoning effort each spawn actually ran at. Use it to check the spawn contract on a live run instead of trusting the docs.
 
 **Ledger.** [`docs/ledger.md`](docs/ledger.md) records a verdict per change (helped, hurt, no observed effect, confounded, unmeasured), built from commit messages only.
 
@@ -170,11 +170,12 @@ A `REVIEW.md` at the repo root changes what gets flagged, and at what severity. 
 `.claude/review-all.json` is optional, and every key has a default. `/review-all init` walks you through creating it.
 
 ```json
-{ "verifierModel": "haiku", "verifierVotes": 1, "skipAgents": [], "extraAgents": [],
+{ "verifierModel": "haiku", "verifierVotes": 1, "verifierEffort": "high", "agentEffort": {}, "skipAgents": [], "extraAgents": [],
   "quotaDebt": 5, "quotaSuggested": 3, "suggestedGlobalCap": 10, "maxFileDiffBytes": 160000 }
 ```
 
 - `verifierVotes: 3` has three verifier passes vote on 🔴/🟠 findings.
+- Every subagent spawn passes an explicit reasoning effort sized to its job (`xhigh` bugs/security, `high` search-heavy axes and the verifier, `medium` checklist axes). `agentEffort: {"02-bugs-security": "max"}` overrides one axis; `verifierEffort` sets the verifier. The skill's own `effort: high` covers only its first turn, so without per-spawn effort the verifiers ran at the session default (observed in real review transcripts), and so would any Phase 4 agent.
 - Set the quota and cap keys to `0` to get every verified finding (🔴/🟠 are never capped).
 - File exclusion patterns are in `scripts/file-classes.json`. Test files, `.md` and deleted files are always reviewed.
 - Full key table: `references/config-keys.md`.

@@ -70,7 +70,7 @@ d=json.load(open(sys.argv[1]))
 out=set()
 for v in d.get("classes",{}).values(): out.update(v)
 print("\n".join(sorted(out)))' "$CLASSES")"
-table_classes="$(sed -n '/^| # | Agent | Persona | Model | Spawn condition |/,/^$/p' "$AGENTS_DOC" \
+table_classes="$(sed -n '/^| # | Agent | Persona | Model | Effort | Spawn condition |/,/^$/p' "$AGENTS_DOC" \
   | grep -o 'class `[a-z0-9]*`' | sed 's/class `//; s/`//' | sort -u)"
 
 if [[ -z "$table_classes" ]]; then

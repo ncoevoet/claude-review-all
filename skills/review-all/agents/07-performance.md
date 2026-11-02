@@ -2,6 +2,7 @@
 name: performance
 description: Detect performance regressions in changed code — N+1 queries, unnecessary recomputes, missing memoization, big-O regressions, memory leaks, bundle-size red flags.
 model: opus
+effort: high
 ---
 
 # Agent 7: Performance

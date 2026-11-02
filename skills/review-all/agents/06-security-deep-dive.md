@@ -2,6 +2,7 @@
 name: security-deep-dive
 description: Conditional threat-model analysis with adversarial reasoning, attack scenarios, and CWE classification. Distinct from agent 02 (which does broad pattern scanning).
 model: opus
+effort: xhigh
 ---
 
 # Agent 6: Security Deep Dive (CONDITIONAL)
