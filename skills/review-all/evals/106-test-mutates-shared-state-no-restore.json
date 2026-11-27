@@ -1,0 +1,35 @@
+{
+  "id": "106-test-mutates-shared-state-no-restore",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A new spec sets the global AppConfig.legacyOrderIds flag in beforeEach and never restores it, so the later \"default mode\" test in the same file runs with legacy ids on and its numeric-id expectation depends on test order. Its only assertion (at least one row exists) was already true before the change, so it does not discriminate the new behaviour.",
+    "files": {
+      "src/orders/orders.legacy.spec.ts": {
+        "after": "import { describe, it, expect, beforeEach } from \"vitest\";\nimport { AppConfig } from \"./app-config\";\nimport { listOrders, Order } from \"./orders\";\n\ndescribe(\"listOrders with legacy mode\", () => {\n  beforeEach(() => {\n    AppConfig.legacyOrderIds = true;\n  });\n\n  it(\"returns the orders\", () => {\n    const rows: Order[] = listOrders();\n    expect(rows.length).toBeGreaterThan(0);\n  });\n});\n\ndescribe(\"listOrders default mode\", () => {\n  it(\"returns numeric order ids\", () => {\n    expect(listOrders()[0].id).toMatch(/^\\d+$/);\n  });\n});\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "test-state-leak",
+        "file": "src/orders/orders.legacy.spec.ts",
+        "min_severity": "DEBT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags that the spec sets the global AppConfig.legacyOrderIds in beforeEach and never restores it (no afterEach/finally), leaking state into the later default-mode test in the same file, at DEBT, IMPORTANT or higher. Full credit also if it notes that expect(rows.length).toBeGreaterThan(0) is non-discriminating (passes on pre-change code, asserts nothing about legacy ids). FAIL if the missing restore is not surfaced."
+  },
+  "expected_behavior": [
+    "Flags the missing restore of the global flag",
+    "Notes the assertion would pass without the legacy mode"
+  ],
+  "expected_not_behavior": [
+    "Does NOT flag the use of beforeEach itself as wrong"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "id": "101-replacement-parity-preserved-correct",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "Twin of 100: formatForEndpoint() is replaced by formatForEndpoint(), restructured as a stream filter plus sort. Every behaviour of the removed code (supports() filtering, rank ordering, mutable result) is preserved.",
+    "files": {
+      "src/main/java/shop/delivery/DeliveryFormatter.java": {
+        "before": "import java.util.ArrayList;\nimport java.util.List;\n\npublic class DeliveryFormatter {\n    private final CapabilityRegistry registry;\n\n    public DeliveryFormatter(CapabilityRegistry registry) {\n        this.registry = registry;\n    }\n\n    public List<String> formatForEndpoint(Endpoint endpoint, List<String> codecs) {\n        List<String> supported = new ArrayList<>();\n        for (String codec : codecs) {\n            if (registry.supports(endpoint, codec)) {\n                supported.add(codec);\n            }\n        }\n        supported.sort((a, b) -> endpoint.rank(a) - endpoint.rank(b));\n        return supported;\n    }\n}\n",
+        "after": "import java.util.ArrayList;\nimport java.util.List;\n\npublic class DeliveryFormatter {\n    private final CapabilityRegistry registry;\n\n    public DeliveryFormatter(CapabilityRegistry registry) {\n        this.registry = registry;\n    }\n\n    public List<String> formatForEndpoint(Endpoint endpoint, List<String> codecs) {\n        List<String> offer = new ArrayList<>(codecs.stream()\n            .filter(codec -> registry.supports(endpoint, codec))\n            .toList());\n        offer.sort((a, b) -> endpoint.rank(a) - endpoint.rank(b));\n        return offer;\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "max_critical": 0,
+    "max_important": 0,
+    "must_not_flag": [
+      "dropped or lost filtering of unsupported codecs",
+      "behaviour regression versus formatForEndpoint"
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report does NOT claim a behaviour regression, dropped filtering or lost ordering at CRITICAL or IMPORTANT severity: the stream filter keeps the registry.supports() check and the rank sort, so behaviour is identical. A clean report, or only style-level SUGGESTED remarks, passes. FAIL if it reports at CRITICAL/IMPORTANT that filtering or ordering was lost or changed."
+  },
+  "expected_behavior": [
+    "Verifies the filter and sort are preserved and reports no regression",
+    "Finishes with zero findings or only minor suggestions"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim unsupported codecs are now offered",
+    "Does NOT report any finding at CRITICAL or IMPORTANT"
+  ]
+}

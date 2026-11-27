@@ -1,0 +1,35 @@
+{
+  "id": "105-dst-nonexistent-local-time",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "parseBoundary documents that a nonexistent local time must be rejected, but parses with a STRICT formatter (which only validates the calendar fields) and then calls atZone(Europe/Paris), which silently shifts 2026-03-29 02:30 (spring-forward gap) to 03:30 instead of rejecting it.",
+    "files": {
+      "src/main/java/shop/report/ReportWindow.java": {
+        "after": "import java.time.LocalDateTime;\nimport java.time.ZoneId;\nimport java.time.ZonedDateTime;\nimport java.time.format.DateTimeFormatter;\nimport java.time.format.ResolverStyle;\n\npublic class ReportWindow {\n    private static final DateTimeFormatter FORMAT =\n        DateTimeFormatter.ofPattern(\"uuuu-MM-dd HH:mm\").withResolverStyle(ResolverStyle.STRICT);\n    private static final ZoneId STORE_ZONE = ZoneId.of(\"Europe/Paris\");\n\n    /** Parses a local report boundary. A local time that does not exist must be rejected. */\n    public static ZonedDateTime parseBoundary(String text) {\n        LocalDateTime local = LocalDateTime.parse(text, FORMAT);\n        return local.atZone(STORE_ZONE);\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "dst-nonexistent-local-time",
+        "file": "src/main/java/shop/report/ReportWindow.java",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags at IMPORTANT or CRITICAL that parseBoundary does not reject nonexistent local times: the STRICT resolver does not catch a DST gap, and LocalDateTime.atZone silently shifts e.g. 02:30 on the Europe/Paris spring-forward date to 03:30, contradicting the documented rejection; fix is to check the round trip (zdt.toLocalDateTime().equals(local)) or use the zone rules' getValidOffsets/ gap detection. FAIL if absent, below IMPORTANT, or if it wrongly claims the STRICT formatter already rejects it."
+  },
+  "expected_behavior": [
+    "Explains that atZone adjusts a gap time forward by the gap length",
+    "Suggests a round-trip or ZoneRules validity check"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim the strict formatter makes the method safe"
+  ]
+}

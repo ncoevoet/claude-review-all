@@ -181,6 +181,33 @@ def load_classes(path):
         return json.load(fh)
 
 
+KNOWN_CLASSES = {"code", "data", "test", "ui", "i18n", "contract", "security", "docs"}
+
+
+def parse_extra_classes(value):
+    """Parse --extra-classes (inline JSON or a path to a JSON file); raise ValueError when invalid."""
+    if not value:
+        return {}
+    text = value
+    if not value.lstrip().startswith("{") and os.path.isfile(value):
+        with open(value, "r", encoding="utf-8") as fh:
+            text = fh.read()
+    try:
+        extra = json.loads(text)
+    except json.JSONDecodeError as ex:
+        raise ValueError(f"extraFileClasses is not valid JSON: {ex}")
+    if not isinstance(extra, dict):
+        raise ValueError("extraFileClasses must be an object mapping glob -> list of class names")
+    for glob, tags in extra.items():
+        if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+            raise ValueError(f"extraFileClasses[{glob!r}] must be a list of class names")
+        unknown = sorted(set(tags) - KNOWN_CLASSES)
+        if unknown:
+            raise ValueError(
+                f"extraFileClasses[{glob!r}] has unknown class {unknown}; known: {sorted(KNOWN_CLASSES)}")
+    return extra
+
+
 def select(records, secret_rules, exclude_user, include_user, exclude_rules, max_bytes, class_rules, content_rules):
     reviewable, excluded = [], []
     counts_excluded = {reason: 0 for reason in EXCLUDE_REASONS}
@@ -247,6 +274,7 @@ def build_parser():
     parser.add_argument("--paths", default="", help="comma-separated user include path prefixes")
     parser.add_argument("--max-file-diff-bytes", type=int, default=DEFAULT_MAX_FILE_DIFF_BYTES)
     parser.add_argument("--classes", default=DEFAULT_CLASSES_PATH)
+    parser.add_argument("--extra-classes", default="", help="JSON object or file path: glob -> class list, merged on top of built-in classes (extraFileClasses)")
     parser.add_argument("--explain", default=None, help="print matched patterns for one path and exit, ignoring stdin")
     return parser.parse_args()
 
@@ -256,7 +284,12 @@ def main():
     data = load_classes(args.classes)
     exclude_rules = compile_rule_list(data["exclude"])
     secret_rules = compile_rule_list(data["secret"])
-    class_rules = compile_class_rules(data["classes"])
+    try:
+        extra_classes = parse_extra_classes(args.extra_classes)
+    except (ValueError, OSError) as ex:
+        print(f"select-files: {ex}", file=sys.stderr)
+        return 2
+    class_rules = compile_class_rules(data["classes"]) + compile_class_rules(extra_classes)
     content_rules = compile_content_signals(data.get("content_signals", {}))
     rule_pack_rules = [(pattern, compile_glob(pattern), pack) for pattern, pack in data["rule_packs"].items()]
 

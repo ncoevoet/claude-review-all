@@ -188,5 +188,35 @@ class TestSelectFiles(unittest.TestCase):
         self.assertEqual(run(raw=json.dumps({"path": "a.ts"})).returncode, 2)
 
 
+class ExtraClassesTests(unittest.TestCase):
+    def classes(self, path, args=None):
+        return select([rec(path)], args)["reviewable"][0]["classes"]
+
+    def test_maven_test_dir_is_test(self):
+        self.assertIn("test", self.classes("mod/src/test/java/FooTest.java"))
+
+    def test_it_suffix_does_not_tag_unrelated_java(self):
+        self.assertNotIn("test", self.classes("src/main/java/Audit.java"))
+
+    def test_built_in_classes_without_extra(self):
+        self.assertNotIn("contract", self.classes("svc/foo/Bar.java"))
+
+    def test_e2e_scenario_is_test(self):
+        self.assertIn("test", self.classes("apps/x/e2e/scenarios/a.scenario.json"))
+
+    def test_extra_class_merges_and_keeps_code(self):
+        got = self.classes("svc/foo/Bar.java", ["--extra-classes", json.dumps({"svc/**": ["contract"]})])
+        self.assertIn("contract", got)
+        self.assertIn("code", got)
+
+    def test_unknown_extra_class_rejected(self):
+        res = run([rec("a.py")], ["--extra-classes", json.dumps({"**": ["bogus"]})])
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("bogus", res.stderr)
+
+    def test_non_object_extra_classes_rejected(self):
+        self.assertNotEqual(run([rec("a.py")], ["--extra-classes", "[1]"]).returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,37 @@
+{
+  "id": "102-incomplete-fix-sibling-sink",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "The diff masks the password in CheckoutRequest.toString(), but the unchanged sibling logRequest() in the same class still logs the raw password. The fix is incomplete: a sibling sink of the same secret remains.",
+    "files": {
+      "src/main/java/shop/checkout/CheckoutRequest.java": {
+        "before": "public class CheckoutRequest {\n    private final String email;\n    private final String password;\n\n    public CheckoutRequest(String email, String password) {\n        this.email = email;\n        this.password = password;\n    }\n\n    @Override\n    public String toString() {\n        return \"CheckoutRequest{email=\" + email + \", password=\" + password + \"}\";\n    }\n\n    public void logRequest(java.util.logging.Logger log) {\n        log.info(\"checkout request email=\" + email + \" password=\" + password);\n    }\n}\n",
+        "after": "public class CheckoutRequest {\n    private final String email;\n    private final String password;\n\n    public CheckoutRequest(String email, String password) {\n        this.email = email;\n        this.password = password;\n    }\n\n    @Override\n    public String toString() {\n        return \"CheckoutRequest{email=\" + email + \", password=***\" + \"}\";\n    }\n\n    public void logRequest(java.util.logging.Logger log) {\n        log.info(\"checkout request email=\" + email + \" password=\" + password);\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "sensitive-data-exposure",
+        "file": "src/main/java/shop/checkout/CheckoutRequest.java",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report, at IMPORTANT or CRITICAL in the main body, flags that logRequest() in CheckoutRequest still writes the raw password to the log (CWE-532), even though that line is unchanged, because the diff's toString() masking fix is incomplete; ideally suggests masking or omitting it there too. FAIL if only the toString() change is praised or the unchanged sibling sink is not reported, or it is rated below IMPORTANT."
+  },
+  "expected_behavior": [
+    "Reviews the unchanged sibling logRequest() as part of the incomplete fix",
+    "Reports the remaining raw password log at IMPORTANT+"
+  ],
+  "expected_not_behavior": [
+    "Does NOT dismiss the sink as pre-existing/unchanged code out of scope",
+    "Does NOT flag the masked toString() as a defect"
+  ]
+}

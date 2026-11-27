@@ -102,6 +102,10 @@ The "pre-existing" rule above silently kills real findings when the review targe
    - PR title / description / labels contain `security`, `audit`, `CVE`, or `RM-` (audit-finding code), OR
    - the in-diff code calls into, imports, or modifies a symbol on the pre-existing vulnerable line (semantic adjacency — agent must trace the path).
 
+### Incomplete-fix escape on unchanged sibling lines
+
+A second escape, independent of the audit conditions above: a 🔴/🟠 finding on an **unchanged** line is in scope when the diff **fixes that same defect class on a sibling path of the same data** — a mask added to one log call while another call logs the same secret, a validation added to one entry point of a handler but not its twin. The diff claims the fix; a sibling it missed makes that claim false. Cite both the changed line (the fix) and the unchanged sibling, and use the same root-cause category for both. This escape does not apply when the diff merely touches a file that also contains an unrelated old defect. Limits: the sibling must sit in a touched file or a direct caller/callee of the changed code; it must still pass the 3-question gate and the impossible-state drop on its own; and only agents 02 and 06 use this escape.
+
 Report these as normal findings, tagged `pre_existing: true` in the JSON output. The verifier (`verifier.md`) accepts them without penalty when the escape conditions are met. Do NOT use this escape for 🟡 DEBT or 🔵 SUGGESTED — those remain auto-dropped when pre-existing.
 
 ## Previously-dismissed findings

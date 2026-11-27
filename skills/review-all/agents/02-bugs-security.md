@@ -26,6 +26,22 @@ Apply shared severity tiers, 3-question gate, and auto-drop rules from `_shared.
 - Name-binding traps (Python): a function-local `from m import x` / `import x` / assignment binds `x` as local for the **entire** function, so any use of `x` on an *earlier* branch raises `UnboundLocalError`. Flag a local import/binding that shadows a module-level name used elsewhere in the same function.
 - Referential-integrity / cascade gaps: deleting a parent row (or key) without also removing or NULLing child rows / a derived index that reference it, where no `ON DELETE CASCADE` exists → orphaned, still-queryable rows. Flag the missing child cleanup in the same transaction.
 
+- Side effect before validation: a delete / stop / overwrite / external call runs before a check in the same operation that can still reject it → the request fails and the prior state is already gone. Likewise state recorded as done (flag, marker, counter, retry ledger) before the action it records has succeeded. Flag the ordering; fix: validate first, or record after success.
+- Local-time ↔ instant conversion: a local date-time turned into an instant (`atZone`, `ZonedDateTime.of`, `new Date(y, m, d, h)`, `moment.tz`) without handling the DST gap (nonexistent hour silently shifted) or overlap (repeated hour, offset chosen implicitly), where the value is user input, a report/billing boundary, or persisted. Flag when the old code or the contract rejected or disambiguated it.
+- Restored / derived state: saved state (preferences, column order, cached selection) applied to a NEWER item set — a key absent from the saved data must not yield index `-1`, a colliding index, or a dropped item. A value derived from several inputs (an enabled flag, a total) must be recomputed when ANY of them changes, not only on the one event the code listens to.
+
+## Replacement parity
+
+When a hunk **deletes or replaces** an implementation (a migration, a rewrite, a helper swapped for a new pipeline), the `-` side is the specification of what callers relied on. Enumerate its observable behaviours — filters and removals, fallbacks, error and empty-input paths, disabled-flag branches, fields it copied, ordering it guaranteed — and check each one against the `+` side. Flag every behaviour the new code silently drops or changes, citing both the removed line and the place the new code should have carried it. Do not flag a behaviour the PR description or a test explicitly retires.
+
+## Incomplete fixes — sibling sinks
+
+When the diff adds a guard, mask, sanitizer, escape, or validation at one site, enumerate the other sinks the **same data** reaches in the touched files and their direct callers (other log calls, `toString`, exception messages, traces, exports, a second entry point to the same handler). Flag each sibling left unguarded. The sibling line may be unchanged: it is in scope (see `_shared.md` → incomplete-fix escape), because the diff claims to fix that defect class.
+
+## Async continuations
+
+A callback, subscription, or `await` continuation that outlives what triggered it (component destroyed, session or account switched, run stopped, newer request issued) must re-check its owner/session/generation before it writes state or issues a new request. Flag a continuation that captured the owner and acts on it after it may have changed. Stale-response overwrites are the special case covered under Concurrency below.
+
 ## Concurrency & thread-safety
 
 When changed code shares mutable state across threads (async tasks, executors, request handlers, singletons), check:
@@ -47,6 +63,7 @@ When changed code shares mutable state across threads (async tasks, executors, r
 - XSS: innerHTML/dangerouslySetInnerHTML/v-html without sanitization
 - Path traversal: user-controlled file paths without validation
 - SSRF: user-controlled URLs in server-side requests
+- Secrets reaching logs or errors (CWE-532): a password, token, session id, API key, or a URL carrying one (`?access_token=`, `user:pass@`) passed to a logger, exception message, trace, metrics label, diagnostic export, or `toString()`. Check name-keyed masking lists against the actual parameter/property names in use, and that masking runs before truncation or encoding.
 - Auth/secret default traps: a secret/token/credential compared with `==`/`.equals()` whose configured value can be empty or blank (unset default) → an empty input is accepted. Require non-blank and fail closed.
 
 ## Completeness Analysis

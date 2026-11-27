@@ -96,6 +96,12 @@
     "**/tests/**": [
       "test"
     ],
+    "**/src/test/**": [
+      "test"
+    ],
+    "**/e2e/**": [
+      "test"
+    ],
     "**/messages*.{json,xlf,properties}": [
       "i18n"
     ],

@@ -42,7 +42,7 @@ need "$SKILL" 'lead, not a finding' "lead-not-a-finding rule"
 need "$SKILL" 'Never restate gate output as a finding' "no-restating rule"
 
 # --- verifier.md: both new inputs, the corroboration ceiling, the version bump ---
-need "$VERIFIER" '^version: 7$' "verifier version bumped to 7"
+need "$VERIFIER" '^version: ([7-9]|[1-9][0-9]+)$' "verifier version >= 7 (gate-results inputs)"
 need "$VERIFIER" 'gate_results' "verifier receives gate_results"
 need "$VERIFIER" 'corroborating_agents' "verifier receives corroborating_agents"
 need "$VERIFIER" 'never a substitute for verification' "corroboration is not proof"

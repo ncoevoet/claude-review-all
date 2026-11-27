@@ -1,0 +1,37 @@
+{
+  "id": "100-replacement-parity-dropped-behavior",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A legacy formatForEndpoint() filtered out codecs the destination endpoint does not support, then sorted by rank. It is replaced by formatForEndpoint() which only sorts; the registry.supports() filtering is dropped, so unsupported codecs are now offered to endpoints.",
+    "files": {
+      "src/main/java/shop/delivery/DeliveryFormatter.java": {
+        "before": "import java.util.ArrayList;\nimport java.util.List;\n\npublic class DeliveryFormatter {\n    private final CapabilityRegistry registry;\n\n    public DeliveryFormatter(CapabilityRegistry registry) {\n        this.registry = registry;\n    }\n\n    public List<String> formatForEndpoint(Endpoint endpoint, List<String> codecs) {\n        List<String> supported = new ArrayList<>();\n        for (String codec : codecs) {\n            if (registry.supports(endpoint, codec)) {\n                supported.add(codec);\n            }\n        }\n        supported.sort((a, b) -> endpoint.rank(a) - endpoint.rank(b));\n        return supported;\n    }\n}\n",
+        "after": "import java.util.ArrayList;\nimport java.util.List;\n\npublic class DeliveryFormatter {\n    private final CapabilityRegistry registry;\n\n    public DeliveryFormatter(CapabilityRegistry registry) {\n        this.registry = registry;\n    }\n\n    public List<String> formatForEndpoint(Endpoint endpoint, List<String> codecs) {\n        List<String> ordered = new ArrayList<>(codecs);\n        ordered.sort((a, b) -> endpoint.rank(a) - endpoint.rank(b));\n        return ordered;\n    }\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "behavior-regression",
+        "file": "src/main/java/shop/delivery/DeliveryFormatter.java",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags, at IMPORTANT or CRITICAL in the main body, that the replacement formatForEndpoint() no longer removes codecs the endpoint does not support (the registry.supports(endpoint, codec) filter of the deleted formatForEndpoint() is gone; it only reorders), so unsupported codecs are now offered; ideally recommends restoring the filter. FAIL if the dropped filtering is not noticed, is rated below IMPORTANT, or the report only comments on the rename."
+  },
+  "expected_behavior": [
+    "Compares the deleted formatForEndpoint() with formatForEndpoint() and notes the lost supports() filtering",
+    "Reports it as a behaviour regression at IMPORTANT or CRITICAL"
+  ],
+  "expected_not_behavior": [
+    "Does NOT treat the change as a pure rename or harmless refactor",
+    "Does NOT flag the sorting, which is preserved"
+  ]
+}

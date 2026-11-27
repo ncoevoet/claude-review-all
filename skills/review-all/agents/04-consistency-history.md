@@ -25,6 +25,8 @@ Apply shared severity tiers, 3-question gate, and auto-drop rules from `_shared.
 - If an export was removed: check all importers still work
 - If an interface/type changed: verify all implementations were updated
 - If a config key changed: verify all readers use the new key
+- If a dependency's **major** version changed in a manifest (`package.json`, `pom.xml`, `pyproject.toml`, `go.mod`, `Cargo.toml`): read its changelog or migration notes when available, and grep the repo's consumers of the APIs that major removed, renamed, or changed in meaning. Lockfiles are excluded from review — the manifest line is the only signal.
+- If a removed package or module is still named by a build/config file (builder, plugin, script entry), flag the dangling reference
 
 ## Dead Code Detection
 

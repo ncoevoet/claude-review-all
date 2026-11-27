@@ -145,6 +145,7 @@ If `.claude/review-all.json` exists, read it. Schema (jsonc — written as plain
   "devServerPorts": [4200, 5173, 3000, 8080],
   "extraAgents": [],
   "skipAgents": [],
+  "extraFileClasses": {},
   "outputDir": ".claude/reports",
   "snoozeFile": ".claude/review-all/snooze.json",  // deprecated — legacy, migrated into stateFile
   "historyFile": ".claude/review-all/history.jsonl",
@@ -240,7 +241,8 @@ This makes the skill portable across MCP namespaces and survives codegraph-serve
 ```bash
 echo "$FILE_RECORDS_JSON" | python3 scripts/select-files.py \
   --exclude "<--exclude prefixes>" --paths "<--paths prefixes>" \
-  --max-file-diff-bytes <maxFileDiffBytes>
+  --max-file-diff-bytes <maxFileDiffBytes> \
+  --extra-classes '<extraFileClasses as JSON, omit when {}>'
 ```
 
 `$FILE_RECORDS_JSON` is one record per changed file — `{"path", "status", "insertions", "deletions", "bytes"}` — built from `git diff --numstat` (binary files report `-`/`-`, which becomes `null`) plus `--name-status` for the status letter and the per-file slice size for `bytes`.

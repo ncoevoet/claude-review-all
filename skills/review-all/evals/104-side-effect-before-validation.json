@@ -1,0 +1,35 @@
+{
+  "id": "104-side-effect-before-validation",
+  "skill": "review-all",
+  "query": "/review-all",
+  "fixture": {
+    "kind": "synthetic-diff",
+    "description": "A new updateWorker handler stops and removes the existing worker first and only afterwards validates the new config; an invalid poolSize throws and leaves the system with no worker at all.",
+    "files": {
+      "src/workers/update-worker.ts": {
+        "after": "export interface Worker { stop(): Promise<void>; }\nexport interface Registry {\n  get(id: string): Worker | undefined;\n  remove(id: string): void;\n  add(id: string, w: Worker): void;\n}\n\nexport async function updateWorker(reg: Registry, id: string, config: { poolSize: number }, create: (c: { poolSize: number }) => Worker): Promise<void> {\n  const existing = reg.get(id);\n  if (existing) {\n    await existing.stop();\n    reg.remove(id);\n  }\n  if (!Number.isInteger(config.poolSize) || config.poolSize < 1) {\n    throw new Error(\"invalid poolSize: \" + config.poolSize);\n  }\n  reg.add(id, create(config));\n}\n"
+      }
+    }
+  },
+  "success_criteria": {
+    "must_detect": [
+      {
+        "root_cause_key_like": "side-effect-before-validation",
+        "file": "src/workers/update-worker.ts",
+        "min_severity": "IMPORTANT",
+        "verdict": "keep"
+      }
+    ]
+  },
+  "grader": {
+    "method": "llm-rubric",
+    "rubric": "PASS if the report flags at IMPORTANT or CRITICAL that updateWorker stops and removes the existing worker before validating config.poolSize, so an invalid config throws after the old worker is already gone (resource lost, no rollback); fix is to validate (and ideally create) before stopping/removing. FAIL if absent or below IMPORTANT."
+  },
+  "expected_behavior": [
+    "Identifies the ordering problem: destructive step before validation",
+    "Recommends validating first"
+  ],
+  "expected_not_behavior": [
+    "Does NOT claim the validation itself is wrong"
+  ]
+}

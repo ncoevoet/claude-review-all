@@ -42,6 +42,18 @@ Cross-reference test diff against source diff. Use diff context, not full covera
 - Mocks bypassing validation real implementation does
 - Heavy mocking of unit under test itself (testing the mock, not the code)
 
+## Does the test prove its claim?
+
+- **Discrimination**: would the assertion still pass on the pre-change code, or on the wrong page/state? An assertion that only checks a row/element exists when it already existed before the action, or a selector alternative that also matches the starting page, proves nothing. This is a runtime claim: run the test against the pre-change code (or the wrong state) to earn 🟠 when it is the test's only check of the change; on static reading alone, cap it per `_shared.md` → Claim classes.
+- **Reachability**: trace the test's request from setup to the code under test (auth, routing, parameter names, handler dispatch, mocked collaborators). A test whose input never reaches the target branch passes for the wrong reason. Same claim-class rule: prove it by running the test with the target branch broken, or cap it.
+- **Converted or deleted tests**: when a diff rewrites, moves, or deletes a test, list each assertion the removed version made and confirm its replacement still makes it. A dropped assertion is lost coverage even when the suite stays green.
+
+## Shared-state hygiene
+
+- A test or scenario that mutates shared state — a global/static field, system or platform property, environment variable, shared fixture, or a record it did not create — must capture the original value before mutating and restore it in an unconditional cleanup (`finally`, `afterEach`, a cleanup step that runs on failure). Setup that can fail belongs before the `try`, not inside it.
+- Cleanup must be registered right after the first persisted entity is created, not at the end, or a failing assertion leaves residue.
+- Cleanup deletes only what the test created: a broad delete-by-filter can remove pre-existing data another test or user relies on.
+
 ## Brittle patterns
 
 - Tests dependent on test execution order
